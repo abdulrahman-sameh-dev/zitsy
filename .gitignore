@@ -20,6 +20,8 @@
 /.next/
 /out/
 
+/zitsy-marketing
+
 # production
 /build
 
