@@ -37,3 +37,27 @@ export function toPlainText(raw: string): string {
       .trim()
   );
 }
+/**
+ * Build a concise meta description from a supplier/product description.
+ * Uses the first sentence when it fits, otherwise trims at a word boundary and
+ * appends an ellipsis. Returns the trimmed text (never fabricates copy).
+ */
+export function metaDescription(raw: string, max = 155): string {
+  const text = toPlainText(raw).replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  if (text.length <= max) return text;
+
+  const cut = text.slice(0, max);
+  const sentenceEnd = Math.max(
+    cut.lastIndexOf(". "),
+    cut.lastIndexOf("! "),
+    cut.lastIndexOf("? "),
+  );
+  if (sentenceEnd >= Math.floor(max * 0.6)) {
+    return text.slice(0, sentenceEnd + 1).trim();
+  }
+
+  const lastSpace = cut.lastIndexOf(" ");
+  const base = lastSpace > 0 ? cut.slice(0, lastSpace) : cut;
+  return `${base.replace(/[,;:\-–—]+$/, "").trim()}…`;
+}

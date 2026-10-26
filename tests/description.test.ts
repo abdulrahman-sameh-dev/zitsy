@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { toPlainText } from "@/lib/catalog/description";
+import { metaDescription, toPlainText } from "@/lib/catalog/description";
 
 describe("toPlainText", () => {
   it("strips block tags into paragraph breaks", () => {
@@ -42,5 +42,30 @@ describe("toPlainText", () => {
   it("returns empty string for falsy input", () => {
     expect(toPlainText("")).toBe("");
     expect(toPlainText(undefined as unknown as string)).toBe("");
+  });
+});
+describe("metaDescription", () => {
+  it("returns short text unchanged", () => {
+    expect(metaDescription("A simple cotton tee.")).toBe("A simple cotton tee.");
+  });
+
+  it("uses the first full sentence when it fits within the limit", () => {
+    const text =
+      "A lightweight, breathable tee that says what you mean without shouting. More detail follows here.";
+    expect(metaDescription(text, 80)).toBe(
+      "A lightweight, breathable tee that says what you mean without shouting.",
+    );
+  });
+
+  it("trims long single-sentence text at a word boundary with an ellipsis", () => {
+    const text = "word ".repeat(60).trim();
+    const out = metaDescription(text, 80);
+    expect(out.endsWith("…")).toBe(true);
+    expect(out.length).toBeLessThanOrEqual(101);
+    expect(out).not.toMatch(/\s…$/);
+  });
+
+  it("returns empty string for empty input", () => {
+    expect(metaDescription("")).toBe("");
   });
 });

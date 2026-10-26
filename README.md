@@ -20,6 +20,18 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Production origin
+
+The canonical production origin is `https://zitsy.darkhub.dev`. It is read from
+`NEXT_PUBLIC_APP_URL` and is the single source for canonical URLs, Open Graph
+URLs, JSON-LD, the sitemap, `robots.txt`, and customer tracking links.
+
+- Production: `NEXT_PUBLIC_APP_URL=https://zitsy.darkhub.dev`
+- Local dev: `NEXT_PUBLIC_APP_URL=http://localhost:3000`
+
+Do not set it to a Vercel preview hostname (`*.vercel.app`) in production.
+Production startup refuses a `localhost` value (see `src/lib/config/env.ts`).
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

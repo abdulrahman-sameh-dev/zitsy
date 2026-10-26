@@ -21,7 +21,12 @@
 /out/
 
 /zitsy-marketing
-/scripts
+
+# Local-only catalog/debug utilities. The two scripts that ship with the repo
+# are explicitly un-ignored so they remain trackable on a fresh checkout.
+/scripts/*
+!/scripts/printify-sync.ts
+!/scripts/generate-brand-assets.py
 
 # production
 /build

@@ -1,13 +1,14 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 
 import { InfoPage } from "@/components/storefront/info-page";
 import { site } from "@/lib/config/public-env";
+import { infoPageMetadata } from "@/lib/metadata";
 
-export const metadata: Metadata = {
+export const metadata = infoPageMetadata({
   title: "Privacy policy",
   description: "How Zitsy handles your personal data — collected, why, and who it’s shared with.",
-};
+  path: "/privacy",
+});
 
 export default function PrivacyPage() {
   return (

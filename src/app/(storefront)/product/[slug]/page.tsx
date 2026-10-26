@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { ProductCard } from "@/components/storefront/product-card";
 import { ProductView } from "@/components/storefront/product-view";
 import { deriveCategoryForProduct } from "@/lib/catalog/categories";
+import { metaDescription } from "@/lib/catalog/description";
 import { displayTags } from "@/lib/catalog/tags";
 import { getVisibleProductBySlug, listProductsByCategorySlug } from "@/lib/catalog/query";
 import { site } from "@/lib/config/public-env";
@@ -19,18 +20,30 @@ export async function generateMetadata({
 }: ProductPageProps): Promise<Metadata> {
   const { slug } = await params;
   const product = await getVisibleProductBySlug(slug);
-  if (!product) return {};
+  // Throwing during metadata resolution (before the response streams) keeps
+  // unknown product URLs a true HTTP 404 instead of a soft 404 with status 200.
+  if (!product) notFound();
   const image = product.images[0]?.src;
+  const canonical = `${site.url}/product/${product.slug}`;
+  const description = metaDescription(product.description) || undefined;
   return {
     title: product.title,
-    description: product.description || undefined,
-    alternates: { canonical: `${site.url}/product/${product.slug}` },
+    description,
+    alternates: { canonical },
     openGraph: {
-      title: product.title,
-      description: product.description || undefined,
-      url: `${site.url}/product/${product.slug}`,
-      ...(image ? { images: [{ url: image }] } : {}),
       type: "website",
+      siteName: site.name,
+      locale: "en_GB",
+      title: product.title,
+      description,
+      url: canonical,
+      ...(image ? { images: [{ url: image, alt: product.title }] } : {}),
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: product.title,
+      description,
+      ...(image ? { images: [image] } : {}),
     },
   };
 }
@@ -44,12 +57,10 @@ export default async function ProductPage({ params }: ProductPageProps) {
   const inStock = product.availableVariantCount > 0;
   const firstImage = product.images[0]?.src;
 
-  const [related] = await Promise.all([
-    (async () => {
-      const sameCategory = await listProductsByCategorySlug(category.slug);
-      return sameCategory.filter((item) => item.slug !== product.slug).slice(0, 4);
-    })(),
-  ]);
+  const sameCategory = await listProductsByCategorySlug(category.slug);
+  const related = sameCategory
+    .filter((item) => item.slug !== product.slug)
+    .slice(0, 4);
 
   const structured = {
     "@context": "https://schema.org",

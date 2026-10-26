@@ -1,11 +1,13 @@
 import Link from "next/link";
 
 import { ContactForm } from "@/components/storefront/contact-form";
+import { infoPageMetadata } from "@/lib/metadata";
 
-export const metadata = {
+export const metadata = infoPageMetadata({
   title: "Contact us",
   description: "Get in touch with the Zitsy team about an order or a product.",
-};
+  path: "/contact",
+});
 
 export default function ContactPage() {
   return (

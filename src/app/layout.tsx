@@ -34,26 +34,58 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
   openGraph: {
     type: "website",
-    url: site.url,
     siteName: site.name,
-    title: `${site.name} — ${site.tagline}`,
-    description:
-      "Graphic apparel & lifestyle goods, made to order and delivered across the UK and Germany.",
+    locale: "en_GB",
     images: [{ url: "/og.png", width: 1200, height: 630, alt: site.name }],
   },
   twitter: {
     card: "summary_large_image",
-    title: `${site.name} — ${site.tagline}`,
-    description:
-      "Graphic apparel & lifestyle goods, made to order and delivered across the UK and Germany.",
     images: ["/og.png"],
   },
 };
 
+/**
+ * Site-wide entity graph. Only verified facts: the store name, its canonical
+ * origin, its logo, and the on-site search (the /search route exists). No
+ * address, phone, ratings, or social profiles are asserted because none are
+ * verified.
+ */
+const siteStructuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": `${site.url}/#organization`,
+      name: site.name,
+      url: `${site.url}/`,
+      logo: {
+        "@type": "ImageObject",
+        url: `${site.url}/icon.png`,
+      },
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${site.url}/#website`,
+      url: `${site.url}/`,
+      name: site.name,
+      inLanguage: "en-GB",
+      publisher: { "@id": `${site.url}/#organization` },
+      potentialAction: {
+        "@type": "SearchAction",
+        target: {
+          "@type": "EntryPoint",
+          urlTemplate: `${site.url}/search?q={search_term_string}`,
+        },
+        "query-input": "required name=search_term_string",
+      },
+    },
+  ],
+} as const;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
-      lang="en"
+      lang="en-GB"
       data-scroll-behavior="smooth"
       className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} h-full antialiased`}
     >
@@ -62,6 +94,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Skip to content
         </a>
         {children}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(siteStructuredData).replace(/</g, "\\u003c"),
+          }}
+        />
       </body>
     </html>
   );

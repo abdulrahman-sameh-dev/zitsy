@@ -1,13 +1,14 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 
 import { InfoPage } from "@/components/storefront/info-page";
+import { infoPageMetadata } from "@/lib/metadata";
 
-export const metadata: Metadata = {
+export const metadata = infoPageMetadata({
   title: "Sizing guide",
   description:
     "How to choose the right size for Zitsy apparel — an honest guide, given sizes vary by product.",
-};
+  path: "/sizing",
+});
 
 export default function SizingPage() {
   return (

@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { connection } from "next/server";
+import type { Metadata } from "next";
 
 import { ProductCard } from "@/components/storefront/product-card";
 import { ProductGridSkeleton } from "@/components/storefront/product-grid-skeleton";
@@ -11,8 +12,28 @@ import {
   getFeaturedProducts,
   getHeroProductSummary,
 } from "@/lib/catalog/query";
+import { site } from "@/lib/config/public-env";
 import { formatMoney } from "@/lib/money";
 import type { ProductSummary } from "@/lib/catalog/query";
+
+export const metadata: Metadata = {
+  title: {
+    absolute: `${site.name} — Graphic apparel & lifestyle goods, made to order`,
+  },
+  description:
+    "Shop Zitsy for graphic T-shirts, hoodies, sweatshirts, tote bags, mugs and stickers — pre-designed styles made to order and delivered across the UK and Germany.",
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    url: `${site.url}/`,
+    siteName: site.name,
+    locale: "en_GB",
+    title: `${site.name} — Graphic apparel & lifestyle goods, made to order`,
+    description:
+      "Pre-designed graphic apparel and lifestyle goods, made to order and delivered across the UK and Germany.",
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: site.name }],
+  },
+};
 
 const HERO_SLUG =
   "dragon-silhouette-sweatshirt-vertical-flying-dragon-minimal-black-grap";
@@ -84,6 +105,7 @@ async function HomeHero() {
                   <Image
                     src={hero.imageSrc}
                     alt={hero.title}
+                    loading="eager"
                     fill
                     priority
                     sizes="(min-width: 1024px) 42vw, 100vw"

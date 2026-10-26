@@ -1,12 +1,13 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 
 import { InfoPage } from "@/components/storefront/info-page";
+import { infoPageMetadata } from "@/lib/metadata";
 
-export const metadata: Metadata = {
+export const metadata = infoPageMetadata({
   title: "Terms of service",
   description: "The terms that apply when you buy from Zitsy.",
-};
+  path: "/terms",
+});
 
 export default function TermsPage() {
   return (

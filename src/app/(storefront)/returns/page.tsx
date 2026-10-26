@@ -1,13 +1,14 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 
 import { InfoPage } from "@/components/storefront/info-page";
+import { infoPageMetadata } from "@/lib/metadata";
 
-export const metadata: Metadata = {
+export const metadata = infoPageMetadata({
   title: "Returns & refunds",
   description:
     "Zitsy returns and refunds policy for print-on-demand products.",
-};
+  path: "/returns",
+});
 
 export default function ReturnsPage() {
   return (

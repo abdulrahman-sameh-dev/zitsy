@@ -1,14 +1,15 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 
 import { InfoPage } from "@/components/storefront/info-page";
 import { site } from "@/lib/config/public-env";
+import { infoPageMetadata } from "@/lib/metadata";
 
-export const metadata: Metadata = {
+export const metadata = infoPageMetadata({
   title: "About",
   description:
     "What Zitsy is — a print-on-demand store for graphic apparel and lifestyle goods.",
-};
+  path: "/about",
+});
 
 export default function AboutPage() {
   return (

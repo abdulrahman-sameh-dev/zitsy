@@ -16,34 +16,50 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { category, sort } = await searchParams;
   const categorySlug = typeof category === "string" ? category : undefined;
-  const hasSort = typeof sort === "string" && ["price-asc", "price-desc"].includes(sort);
+  const hasSort =
+    typeof sort === "string" && ["price-asc", "price-desc"].includes(sort);
 
   let title = "Shop";
   let description =
     "Browse the full Zitsy catalogue — graphic apparel and lifestyle goods, made to order.";
+  let activeCategoryName: string | undefined;
   let canonical = `${site.url}/shop`;
 
   if (categorySlug) {
     const categories = await getCategorySummaries();
     const activeCategory = categories.find((c) => c.slug === categorySlug);
     if (activeCategory) {
-      title = `${activeCategory.name} — Zitsy`;
-      description = `Shop ${activeCategory.name.toLowerCase()} at Zitsy — ${activeCategory.productCount} ${
-        activeCategory.productCount === 1 ? "item" : "items"
-      }, made to order.`;
+      activeCategoryName = activeCategory.name;
+      title = activeCategory.name;
+      description = `Shop Zitsy ${activeCategory.name.toLowerCase()} — ${activeCategory.productCount} pre-designed ${
+        activeCategory.productCount === 1 ? "style" : "styles"
+      } made to order and delivered across the UK and Germany.`;
+      canonical = `${site.url}/shop?category=${encodeURIComponent(categorySlug)}`;
     }
-    canonical = `${site.url}/shop?category=${encodeURIComponent(categorySlug)}`;
   }
 
-  // Sort-only query strings create duplicate pages of the same content; the
-  // sortable view collapses onto one canonical URL.
+  // Sort-only query strings duplicate the same content; collapse them onto the
+  // canonical category/shop URL. An unknown category slug keeps the /shop
+  // canonical because the page falls back to the full catalogue.
   if (hasSort) {
-    canonical = categorySlug
-      ? `${site.url}/shop?category=${encodeURIComponent(categorySlug)}`
+    canonical = activeCategoryName
+      ? `${site.url}/shop?category=${encodeURIComponent(categorySlug!)}`
       : `${site.url}/shop`;
   }
 
-  return { title, description, alternates: { canonical } };
+  return {
+    title,
+    description,
+    alternates: { canonical },
+    openGraph: {
+      type: "website",
+      siteName: site.name,
+      locale: "en_GB",
+      url: canonical,
+      title: activeCategoryName ? `${activeCategoryName} · ${site.name}` : `Shop · ${site.name}`,
+      description,
+    },
+  };
 }
 
 function plural(count: number): string {

@@ -1,13 +1,14 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 
 import { InfoPage } from "@/components/storefront/info-page";
+import { infoPageMetadata } from "@/lib/metadata";
 
-export const metadata: Metadata = {
+export const metadata = infoPageMetadata({
   title: "Shipping & delivery",
   description:
     "How Zitsy delivery works — what you can expect when you order, and how to follow your parcel.",
-};
+  path: "/shipping",
+});
 
 export default function ShippingPage() {
   return (
