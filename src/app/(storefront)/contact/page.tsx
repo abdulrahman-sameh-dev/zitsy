@@ -21,7 +21,10 @@ export default function ContactPage() {
       </p>
 
       <div className="mt-8 grid gap-6 sm:grid-cols-[minmax(0,1fr)_14rem]">
-        <div className="rounded-lg border border-line bg-surface p-5 sm:p-6">
+        <div
+          data-clarity-mask="true"
+          className="rounded-lg border border-line bg-surface p-5 sm:p-6"
+        >
           <ContactForm />
         </div>
 

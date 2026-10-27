@@ -8,7 +8,7 @@ export const metadata = {
 
 export default function TrackOrderPage() {
   return (
-    <div className="container-page max-w-xl py-10 sm:py-14">
+    <div data-clarity-mask="true" className="container-page max-w-xl py-10 sm:py-14">
       <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
         Track your order
       </h1>

@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { trackEvent } from "@/lib/analytics/client";
+import { ecommerceParams } from "@/lib/analytics/events";
 import { beginCheckoutAction, captureCheckoutAction, quoteCheckoutAction } from "@/lib/checkout/actions";
 import { createOrderCallback } from "@/lib/checkout/paypal-buttons";
 import { formatMoney } from "@/lib/money";
@@ -22,9 +24,12 @@ declare global {
 }
 
 export interface CheckoutSummaryLine {
+  productId: string;
+  variantId: string;
   title: string;
   variantTitle: string;
   quantity: number;
+  unitPriceMinor: number;
   totalPriceMinor: number;
   currency: string;
 }
@@ -214,6 +219,21 @@ export function CheckoutForm({
         totalMinor: result.totalMinor,
       });
       setPaypalOrderId(result.paypalOrderId);
+      trackEvent("begin_checkout", {
+        ...ecommerceParams(
+          lines.map((line) => ({
+            productId: line.productId,
+            variantId: line.variantId,
+            productTitle: line.title,
+            variantTitle: line.variantTitle,
+            unitPriceMinor: line.unitPriceMinor,
+            quantity: line.quantity,
+            currency: line.currency,
+          })),
+        ),
+        value: result.totalMinor / 100,
+        shipping: result.shippingMinor / 100,
+      });
     } finally {
       setStarting(false);
     }

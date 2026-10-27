@@ -18,9 +18,16 @@ const securityHeaders = [
   { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
 ];
 
-/** Order pages carry PII and are rendered per request — never cached. */
+/** Order/admin pages carry PII and are rendered per request — never cached or indexed. */
 const privateOrderHeaders = [
   { key: "Cache-Control", value: "private, no-store" },
+  { key: "X-Robots-Tag", value: "noindex, nofollow" },
+];
+
+/** Search results depend on the visitor's HttpOnly search cookie. */
+const privateSearchHeaders = [
+  { key: "Cache-Control", value: "private, no-store" },
+  { key: "X-Robots-Tag", value: "noindex, follow" },
 ];
 
 const nextConfig: NextConfig = {
@@ -47,6 +54,18 @@ const nextConfig: NextConfig = {
       {
         source: "/track-order/:path*",
         headers: privateOrderHeaders,
+      },
+      {
+        source: "/admin",
+        headers: privateOrderHeaders,
+      },
+      {
+        source: "/admin/:path*",
+        headers: privateOrderHeaders,
+      },
+      {
+        source: "/search",
+        headers: privateSearchHeaders,
       },
     ];
   },

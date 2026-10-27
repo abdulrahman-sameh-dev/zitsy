@@ -2,6 +2,9 @@
   "name": "zitsy",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.13.0 <23"
+  },
   "scripts": {
     "dev": "next dev",
     "postinstall": "prisma generate",
@@ -14,32 +17,33 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@prisma/adapter-pg": "^7.10.0",
-    "@prisma/client": "^7.10.0",
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1",
     "@react-email/render": "^2.1.0",
     "clsx": "^2.1.1",
     "dotenv": "^18.0.5",
-    "next": "16.3.8",
+    "next": "16.4.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "resend": "^6.32.1",
     "tailwind-merge": "^3.7.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^5.0.3",
     "eslint": "^9",
-    "eslint-config-next": "16.3.8",
+    "eslint-config-next": "16.4.3",
     "playwright": "^1.63.0",
-    "prisma": "7.10.0",
+    "prisma": "7.10.1",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5",
+    "vite": "^8.3.5",
     "vitest": "^5.0.3"
   },
   "packageManager": "pnpm@11.5.2",

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Logo } from "@/components/brand/logo";
 import { NavLink } from "@/components/storefront/nav-link";
 import { loadCartCount } from "@/lib/cart/read";
+import { searchAction } from "@/lib/search/actions";
 
 function CartIcon() {
   return (
@@ -57,9 +58,9 @@ export async function Header() {
         </nav>
 
         <form
-          action="/search"
-          method="get"
+          action={searchAction}
           role="search"
+          data-clarity-mask="true"
           className="ml-auto hidden w-full max-w-xs md:block lg:max-w-sm"
         >
           <label htmlFor="site-search" className="sr-only">

@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
+import { SearchTracking } from "@/components/analytics/search-tracking";
 import { ProductCard } from "@/components/storefront/product-card";
 import { getCategorySummaries } from "@/lib/catalog/query";
 import { searchVisibleProducts } from "@/lib/catalog/search";
+import { clearSearchAction, searchAction } from "@/lib/search/actions";
+import { normalizeSearchQuery, SEARCH_QUERY_COOKIE } from "@/lib/search/query";
 
 export const metadata: Metadata = {
   title: "Search",
@@ -21,7 +26,10 @@ export default async function SearchPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { q } = await searchParams;
-  const query = typeof q === "string" ? q.trim().slice(0, 80) : "";
+  if (q !== undefined) redirect("/search");
+
+  const cookieStore = await cookies();
+  const query = normalizeSearchQuery(cookieStore.get(SEARCH_QUERY_COOKIE)?.value);
 
   const [results, categories] = await Promise.all([
     query ? searchVisibleProducts(query) : [],
@@ -29,7 +37,12 @@ export default async function SearchPage({
   ]);
 
   return (
-    <div className="flex flex-col gap-10 py-12">
+    <div data-clarity-mask="true" className="flex flex-col gap-10 py-12">
+      <SearchTracking
+        key={query}
+        hasQuery={query.length > 0}
+        results={results.length}
+      />
       <div className="container-page">
         <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
           Search
@@ -38,7 +51,7 @@ export default async function SearchPage({
           Search the catalogue by title, description or tag.
         </p>
 
-        <form action="/search" method="get" role="search" className="mt-6 max-w-xl">
+        <form action={searchAction} role="search" className="mt-6 max-w-xl">
           <label htmlFor="search-input" className="sr-only">
             Search products
           </label>
@@ -106,9 +119,11 @@ export default async function SearchPage({
               Try a different word, or browse the full catalogue below.
             </p>
             <div className="mt-6 flex flex-wrap justify-center gap-3">
-              <Link href="/search" className="btn-secondary">
-                Clear search
-              </Link>
+              <form action={clearSearchAction}>
+                <button type="submit" className="btn-secondary">
+                  Clear search
+                </button>
+              </form>
               <Link href="/shop" className="btn-primary">
                 Browse all products
               </Link>

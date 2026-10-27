@@ -10,6 +10,8 @@ import { STORE_TEST_DATABASE_URL } from "./tests/test-db";
 loadEnv();
 process.env.DATABASE_URL = STORE_TEST_DATABASE_URL;
 process.env.RESEND_API_URL = `http://127.0.0.1:${STUB_PORT}`;
+process.env.ADMIN_USERNAME = "e2e-admin@example.com";
+process.env.ADMIN_PASSWORD = "e2e-only-admin-password-123";
 
 export default defineConfig({
   testDir: "./e2e",

@@ -79,7 +79,12 @@ export async function processPrintifyWebhook(
   try {
     let result: WebhookStatus;
     if (type.startsWith("product:")) {
-      await handleProductEvent(client, type, extractResource(payload));
+      await handleProductEvent(
+        client,
+        type,
+        extractResource(payload),
+        webhookSnapshotVersion(payload, event.receivedAt),
+      );
       result = "processed";
     } else if (type.startsWith("order:")) {
       result = await handleOrderEvent(type, payload, extractResource(payload));
@@ -118,10 +123,26 @@ function isFullProduct(value: unknown): value is PrintifyProduct {
   );
 }
 
+/**
+ * Order complete product snapshots by when Printify created the event. Fall
+ * back to the stable receipt time for legacy events without `created_at`.
+ */
+function webhookSnapshotVersion(
+  payload: PrintifyWebhookEvent,
+  receivedAt: Date,
+): Date {
+  if (payload.created_at) {
+    const parsed = new Date(payload.created_at);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return receivedAt;
+}
+
 async function handleProductEvent(
   client: PrintifyClient,
   type: string,
   ref: ResourceRef,
+  snapshotVersion: Date,
 ): Promise<void> {
   const productFromData = ref.legacy.resource as PrintifyProduct | undefined;
   const productFromResource = ref.data as unknown as PrintifyProduct | undefined;
@@ -137,9 +158,11 @@ async function handleProductEvent(
   }
 
   if (type === "product:deleted") {
+    // Advance the version even when the row is already hidden so a delayed
+    // pre-delete update cannot bring it back.
     await db.product.updateMany({
-      where: { printifyId: resourceId, visible: true },
-      data: { visible: false, syncedAt: new Date() },
+      where: { printifyId: resourceId, syncedAt: { lte: snapshotVersion } },
+      data: { visible: false, syncedAt: snapshotVersion },
     });
     return;
   }
@@ -149,7 +172,7 @@ async function handleProductEvent(
     : isFullProduct(productFromResource)
       ? productFromResource
       : await client.getProduct(resourceId);
-  await upsertProductFromApi(product);
+  await upsertProductFromApi(product, undefined, snapshotVersion);
 }
 
 function orderResult(applied: boolean): WebhookStatus {

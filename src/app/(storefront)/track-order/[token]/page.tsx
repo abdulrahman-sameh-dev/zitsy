@@ -87,7 +87,7 @@ export default async function TrackOrderDetailPage({
   const view = toTrackingView(order);
 
   return (
-    <div className="container-page max-w-2xl py-10 sm:py-14">
+    <div data-clarity-mask="true" className="container-page max-w-2xl py-10 sm:py-14">
       <p className="text-sm text-muted">Order</p>
       <div className="mt-1 flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">

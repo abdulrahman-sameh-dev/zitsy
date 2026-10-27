@@ -1,7 +1,8 @@
 import Link from "next/link";
 
+import { ConsentSettingsButton } from "@/components/analytics/consent-settings-button";
 import { Logo } from "@/components/brand/logo";
-import { site } from "@/lib/config/public-env";
+import { hasAnalyticsProviders, site } from "@/lib/config/public-env";
 
 const CATEGORY_LINKS = [
   { name: "All products", href: "/shop" },
@@ -120,6 +121,11 @@ export function Footer() {
                 Terms of service
               </Link>
             </li>
+            {hasAnalyticsProviders() ? (
+              <li>
+                <ConsentSettingsButton className="text-muted-light transition-colors hover:text-brand-300" />
+              </li>
+            ) : null}
           </ul>
         </nav>
       </div>

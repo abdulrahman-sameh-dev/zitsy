@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { connection } from "next/server";
 
+import { PurchaseTracking } from "@/components/analytics/purchase-tracking";
+import { shouldTrackPurchase } from "@/lib/analytics/purchase";
 import type { FulfillmentStatus } from "@/generated/prisma/enums";
 import { getOrderSummary } from "@/lib/checkout/service";
 import { readOrderRef } from "@/lib/checkout/session";
@@ -40,7 +42,26 @@ export default async function CheckoutSuccessPage() {
   const paid = order.status === "PAID";
 
   return (
-    <div className="container-page max-w-2xl py-10 sm:py-14">
+    <div
+      data-clarity-mask="true"
+      className="container-page max-w-2xl py-10 sm:py-14"
+    >
+      <PurchaseTracking
+        paid={shouldTrackPurchase(order)}
+        orderNumber={order.orderNumber}
+        totalMinor={order.totalMinor}
+        shippingMinor={order.shippingMinor}
+        currency={order.currency}
+        lines={order.lines.map((line) => ({
+          productId: line.productId,
+          variantId: line.variantId,
+          productTitle: line.title,
+          variantTitle: line.variantTitle,
+          unitPriceMinor: line.unitPriceMinor,
+          quantity: line.quantity,
+          currency: order.currency,
+        }))}
+      />
       <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
         {paid ? "Thank you — your order is confirmed" : "Your order is pending"}
       </h1>

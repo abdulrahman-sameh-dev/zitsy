@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, Geist, Geist_Mono } from "next/font/google";
 
-import { site } from "@/lib/config/public-env";
+import { analytics, site } from "@/lib/config/public-env";
 
 import "./globals.css";
 
@@ -45,10 +45,10 @@ export const metadata: Metadata = {
 };
 
 /**
- * Site-wide entity graph. Only verified facts: the store name, its canonical
- * origin, its logo, and the on-site search (the /search route exists). No
- * address, phone, ratings, or social profiles are asserted because none are
- * verified.
+ * Site-wide entity graph. Only verified facts: the store name and its canonical
+ * origin. No address, phone, ratings, social profiles, or query-based
+ * SearchAction are asserted because none are verified or compatible with the
+ * privacy-preserving search flow.
  */
 const siteStructuredData = {
   "@context": "https://schema.org",
@@ -70,14 +70,6 @@ const siteStructuredData = {
       name: site.name,
       inLanguage: "en-GB",
       publisher: { "@id": `${site.url}/#organization` },
-      potentialAction: {
-        "@type": "SearchAction",
-        target: {
-          "@type": "EntryPoint",
-          urlTemplate: `${site.url}/search?q={search_term_string}`,
-        },
-        "query-input": "required name=search_term_string",
-      },
     },
   ],
 } as const;
@@ -89,7 +81,26 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       data-scroll-behavior="smooth"
       className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} h-full antialiased`}
     >
+      <head>
+        {analytics.gtmId ? (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${analytics.gtmId.replace(/"/g, '\\"')}');`,
+            }}
+          />
+        ) : null}
+      </head>
       <body className="flex min-h-full flex-col">
+        {analytics.gtmId ? (
+          <noscript>
+            <iframe
+              src={`https://www.googletagmanager.com/ns.html?id=${encodeURIComponent(analytics.gtmId)}`}
+              height="0"
+              width="0"
+              style={{ display: "none", visibility: "hidden" }}
+            />
+          </noscript>
+        ) : null}
         <a href="#main-content" className="skip-link">
           Skip to content
         </a>

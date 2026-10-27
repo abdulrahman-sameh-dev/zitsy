@@ -33,15 +33,16 @@ PostgreSQL is the source of truth. Email/webhook delivery never corrupts order s
 
 | Concern | Choice |
 |---|---|
+| Runtime | Node.js `>=22.13.0 <23` (`.nvmrc` pins `22.23.1`), pnpm `11.5.2` |
 | Framework | Next.js 16 (App Router, Turbopack), React 19, TypeScript |
 | Styling | Tailwind CSS v4 + small shadcn-style `components/ui` primitives |
-| DB | PostgreSQL (local: `zitsy_store`, test: `zitsy_store_test`) + Prisma 7 (migrations only) |
+| DB | PostgreSQL (local: `zitsy_store`, test: `zitsy_store_test`) + Prisma 7 (client, adapter, migrations) |
 | Validation | Zod 4 |
-| Payments | PayPal Orders v2 REST (sandbox), server-side capture + webhook verification |
+| Payments | PayPal Orders v2 REST, server-side capture + webhook verification |
 | Fulfillment | Printify Public API v1 (Bearer token, server-only) |
 | Email | Resend (official `resend` SDK, `Idempotency-Key` per send) + React Email HTML templates rendered with `@react-email/render` |
-| Auth | Custom minimal email+password (scrypt) + DB session cookie — no external auth provider |
-| Money | Integer minor units (`*Minor` columns), `STORE_CURRENCY=GBP` |
+| Auth | Guest checkout with no customer accounts; private admin uses env credentials and an HMAC-signed, credential-bound cookie |
+| Money | Integer minor units (`*Minor` columns), `STORE_CURRENCY=GBP`, explicit USD→GBP FX rates |
 | Tests | Vitest (unit + DB integration, mocked transports), Playwright (browser E2E on the test DB + a local Resend HTTP stub) |
 
 ## 3. Project structure
@@ -49,57 +50,60 @@ PostgreSQL is the source of truth. Email/webhook delivery never corrupts order s
 ```
 src/
 ├── app/
-│   ├── (storefront)/          # /, /shop, /shop/[slug], /product/[slug], /search, /contact,
-│   │                           #   /track-order + /track-order/[token], info pages
-│   ├── account/               # login, register, orders
-│   ├── checkout/              # checkout page, confirmation
+│   ├── (storefront)/          # /, /shop, /product/[slug], /search, /contact,
+│   │                           #   /cart, /checkout, /track-order, info pages
+│   ├── admin/                 # /admin/login, /admin/analytics (private)
 │   ├── api/
-│   │   ├── checkout/          # create PayPal order, capture
+│   │   ├── cron/              # catalog sync + fulfillment retry
 │   │   └── webhooks/          # paypal, printify
 │   └── ...
-├── components/                # ui/, layout/, product/, cart/, checkout/
+├── proxy.ts                   # redirects legacy search URLs without raw terms
+├── components/                # storefront, checkout, analytics, admin, brand
 ├── lib/
-│   ├── config/env.ts          # ONE central Zod-validated env module
-│   ├── db/                    # prisma client singleton
-│   ├── auth/                  # password hashing, sessions, guards
+│   ├── config/env.ts          # Zod-validated server env
+│   ├── config/public-env.ts   # browser-safe values (NEXT_PUBLIC_*)
+│   ├── db/                    # Prisma client + PostgreSQL adapter
+│   ├── admin/                 # sessions, page guard, rate limit, analytics query
+│   ├── analytics/             # consent, GA4/Clarity, events, purchase dedupe
 │   ├── markets.ts             # GB/DE market config
-│   ├── catalog/               # normalization (slug, categories, variant options)
-│   ├── products/              # product/variant read models + variant resolution
-│   ├── cart/                  # cart service (guest cookie + auth merge)
-│   ├── orders/                # order service + state machines
-│   ├── payments/              # provider boundary (PaymentProvider interface), paypal impl
-│   ├── printify/              # server-only API client
-│   ├── fulfillment/           # PAID → Printify order (idempotent)
-│   ├── email/                 # Resend send path: service (idempotent), templates, order triggers
-│   ├── contact/                # contact form: schema, store delivery, server action
-│   ├── rate-limit.ts           # in-memory fixed-window limiter (per process) + http.ts getClientIp
-│   └── validation/            # shared Zod schemas
-├── services/                  # checkout orchestration (create/capture/confirm)
-└── actions/                   # server actions (cart, auth, contact, order lookup)
+│   ├── catalog/               # normalization + read models
+│   ├── cart/                  # guest cart service
+│   ├── checkout/              # checkout orchestration + PayPal contract
+│   ├── orders/                # order state, tracking, order numbers
+│   ├── paypal/                # PayPal client + webhook handling
+│   ├── printify/              # server-only API client + webhook handling
+│   ├── fulfillment/           # idempotent Printify order creation/status sync
+│   ├── email/                 # Resend send path, templates, order triggers
+│   ├── contact/               # contact form schema, delivery, action
+│   ├── search/                # search query cookie + server action
+│   ├── cron/                  # cron bearer verification
+│   └── http.ts                # client IP extraction
+├── generated/prisma/          # generated Prisma client (gitignored)
+└── ...
 scripts/printify-sync.ts       # pnpm printify:sync (full sync + webhook subscription ensure)
 ```
 
 Responsibility rules:
 - `lib/printify`, `lib/paypal`, `lib/email` — external I/O only, never business rules.
-- `services/checkout` — the only place that may create orders/payments/fulfillment.
-- State machines are pure functions (`lib/orders/state-machine.ts`, `lib/payments/state-machine.ts`).
-- No `process.env` reads outside `lib/config/env.ts`.
+- `lib/checkout/service.ts` — the orchestration point for orders, payments, and fulfillment triggers.
+- State machines are pure functions (`lib/orders/state.ts`; fulfillment transitions in `lib/fulfillment/status.ts`).
+- Server secrets are read only in `lib/config/env.ts`; browser-safe public values live in `lib/config/public-env.ts`.
 
 ## 4. Data model (Prisma)
 
-- **User** email unique, passwordHash, name.
-- **Session** tokenHash unique, userId, expiresAt (cookie holds raw token).
+- **User** and **Session** remain in the schema from the original plan but are not used by the storefront; there is no customer account, login, or registration surface.
 - **Product** printifyId unique, slug unique, title, description, tags[], options Json (definitions from Printify), visible, blueprintId, printProviderId, minPriceMinor, currency, syncedAt.
 - **ProductImage** productId+src unique, position, isDefault, variantIds Int[].
-- **ProductVariant** (productId, printifyVariantId) unique, priceMinor, isEnabled, isAvailable, colorName?, sizeName?, optionValueIds Int[], options Json, sku, title.
+- **ProductVariant** (productId, printifyVariantId) unique, priceMinor, costMinor, isEnabled, isAvailable, colorName?, sizeName?, optionValueIds Int[], options Json, sku, title.
 - **Category** slug unique + **ProductCategory** join — derived from real Printify tags through one normalization layer.
-- **Cart** token unique, userId? — **CartItem** (cartId, variantId) unique, quantity, unitPriceMinor snapshot.
-- **Order** orderNumber unique, userId?, email, status, currency, subtotal/shipping/total Minor, shipping address, paypalOrderId unique?, printifyOrderId?, **trackingToken unique?** (24 random bytes, base64url — the public `/track-order/<token>` link), **deliveredAt?**, timestamps.
-- **OrderItem** snapshot: printifyProductId, printifyVariantId, title, variantTitle, qty, unit/total price.
+- **Cart** token unique (only the SHA-256 hash is stored) — **CartItem** (cartId, variantId) unique, quantity, unitPriceMinor snapshot.
+- **Order** orderNumber unique, email, status, currency, subtotal/shipping/total Minor, shipping address, paypalOrderId unique?, printifyOrderId?, **trackingToken unique?** (24 random bytes, base64url — the public `/track-order/<token>` link), **fulfillmentStatus**, fulfillment timestamps/error/attempts, **deliveredAt?**, timestamps.
+- **OrderItem** snapshot: printifyProductId, printifyVariantId, title, variantTitle, qty, unit/total price, currency.
 - **Payment** provider, providerOrderId, status, amountMinor, unique(orderId, provider).
 - **WebhookEvent** (provider, eventId) unique — idempotency ledger for webhook dedupe.
 - **CatalogSyncRun** type/status/counters — sync + reconciliation visibility.
 - **EmailLog** kind/status/error/**dedupeKey unique?** — the idempotency ledger: one accepted send per key (`order-confirmed|order-submitted|order-shipped|order-delivered|admin-new-order:<orderId>`, `support-message|support-received:<uuid>`), mirrored to Resend's `Idempotency-Key` header. Proves email attempts without affecting order state.
+- **RateLimitBucket** key (hashed client identifier), count, resetAt — durable PostgreSQL fixed-window limiter for admin login; indexed by resetAt.
 
 Constraints: unique business keys on Printify IDs (no duplicates on retry), FK cascade on cart items/images/variants, numeric checks (>=0) on money columns.
 
@@ -113,7 +117,7 @@ Order is marked PAID only from server-side PayPal capture/verification (never fr
 
 ## 6. Checkout & idempotency
 
-1. Server loads cart by cookie and re-validates every variant (exists, belongs to product, visible, enabled, available, quantity ≤ 99) and recomputes totals from DB prices. MVP sets shipping = 0 (no shipping/tax engine yet, documented — never fabricated).
+1. Server loads cart by cookie and re-validates every variant (exists, belongs to product, visible, enabled, available, quantity ≤ 99) and recomputes totals from DB prices. Shipping is quoted server-side through Printify for the address; tax is still not modelled (documented — never fabricated).
 2. Creates Order (PAYMENT_PENDING) with an immutable snapshot of every line (Printify ids, title, variant title, sku, quantity, unit price, line total, currency) + Payment (PENDING) — in one transaction. A unique retry loop allocates the order number.
 3. Creates the PayPal order (`intent=CAPTURE`, `purchase_units[0].custom_id` and `reference_id` = our order id, `amount.value` = `toDecimalString(totalMinor)`), stores `paypalOrderId`.
 4. Browser approves via the PayPal JS SDK; `onApprove` calls the server action `captureCheckoutAction`.
@@ -124,26 +128,28 @@ Order is marked PAID only from server-side PayPal capture/verification (never fr
 
 PayPal webhooks (`POST /v1/notifications/verify-webhook-signature`, deduped via `WebhookEvent @@unique([provider,eventId])`) drive the same idempotent path: `CHECKOUT.ORDER.APPROVED` triggers the server capture, `PAYMENT.CAPTURE.COMPLETED` verifies + marks paid, `PAYMENT.CAPTURE.DENIED` fails the payment. Refresh/retry/duplicate delivery all converge on one PAID state. **Browser is never the source of truth** — the order only becomes PAID after server-side capture/verification.
 
-Shipping/tax is intentionally out of scope for Phase 5 (shipping is exactly zero). Fulfillment/Printify order creation is Phase 6 (see below); emails are Phase 8.
+Shipping is quoted through Printify before payment; tax is still out of scope. Fulfillment/Printify order creation is Phase 6, emails are Phase 8, and admin analytics/privacy hardening are Phase 9 (see below).
 
 ## 7. Catalog synchronization
 
-- **Full sync** (`pnpm printify:sync`): paginated `GET /v1/shops/{id}/products.json`, upsert by `printifyId` in a transaction, replace images/variants, rebuild category links, mark unseen products as hidden. Also ensures webhook subscriptions exist.
+- **Full sync** (`pnpm printify:sync`): paginated `GET /v1/shops/{id}/products.json`, upsert by `printifyId` in a transaction, replace images, upsert variants by `(productId, printifyVariantId)` so variant IDs stay stable, rebuild category links, and mark unseen products/variants hidden or disabled rather than deleting them. Also ensures webhook subscriptions exist.
 - **Webhooks**: `product:created|updated|deleted` — payload only carries `shop_id`, so handler refetches the product by id and upserts (safe on retry). `order:*` events update fulfillment state.
 - **Reconciliation**: the same full-sync path; idempotent by design, so it can run any time.
 - Options/colors/sizes: rendered exclusively from `product.options` × enabled+available variants. Nothing is hardcoded; a variant combination only appears if a purchasable variant exists with that option-value set.
 
 ## 8. Markets & currency
 
-`src/lib/markets.ts`: `{ GB, DE }`, `STORE_CURRENCY=GBP`, no FX. Checkout rejects any other country. Printify variant prices are already integer minor units in the shop currency; we assume the Printify shop currency equals `STORE_CURRENCY` (documented assumption).
+`src/lib/markets.ts`: `{ GB, DE }`, `STORE_CURRENCY=GBP`. Checkout rejects any other country. Printify returns costs in `PRINTIFY_COST_CURRENCY` (default USD); `STORE_FX_RATES` provides explicit rates such as `USD:GBP=0.754`, and the storefront derives retail prices from the converted fulfillment cost. A missing FX pair fails closed rather than assuming 1:1.
 
 ## 9. Security
 
 - Secrets only via `lib/config/env.ts`; no `NEXT_PUBLIC_` for anything secret (`NEXT_PUBLIC_PAYPAL_CLIENT_ID` only — client IDs are public by design).
 - Webhook endpoints verify signatures (PayPal verify-webhook-signature API; Printify `X-Pfy-Signature: sha256=HMAC-SHA256(rawBody, PRINTIFY_WEBHOOK_SECRET)` with `crypto.timingSafeEqual`).
 - Zod on every API/action input; server is authoritative for prices, variants, country, totals.
-- Authorization: there is no account/login surface yet (guest checkout only), so nothing is scoped to a session user; checkout capture/success is scoped to the HMAC-signed `zitsy_order` cookie — the success page reads the order from that cookie only, never from a query parameter (browser can never declare an order paid; only server capture/webhook after amount+currency+reference verification).
-- Response headers (`next.config.ts`): `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Strict-Transport-Security: max-age=31536000; includeSubDomains`, `X-Powered-By` removed. `/checkout/success` and `/track-order/*` additionally send `Cache-Control: private, no-store`. No CSP by design — it would have to allow the PayPal JS SDK and Printify-hosted imagery.
+- Authorization: customers check out as guests; there is no customer account/login surface. Checkout capture/success is scoped to the HMAC-signed `zitsy_order` cookie — the success page reads the order from that cookie only, never from a query parameter (browser can never declare an order paid; only server capture/webhook after amount+currency+reference verification).
+- **Admin** is private: `/admin/analytics` calls the centralized `requireAdminPage()` guard on every request and redirects unauthenticated visitors to `/admin/login`. The session cookie is HttpOnly, SameSite=Lax, Secure in production, expires after 12 hours, and is signed with a key derived from `AUTH_SECRET` plus the current `ADMIN_USERNAME`/`ADMIN_PASSWORD`; rotating either credential invalidates active sessions. Login attempts are limited in PostgreSQL by the hashed client address, so the limit is shared across instances. There is no MFA, individual-user account, or audit log; admin remains a single shared credential.
+- **Analytics privacy**: analytics loads only after explicit consent. New searches keep terms out of page URLs: forms post through a server action, the current query lives in an HttpOnly SameSite=Lax session cookie scoped to `/search`, and legacy `?q=` URLs are redirected by `src/proxy.ts`. Legacy inbound URLs can still remain in browser history or edge logs before the redirect; POST bodies and that cookie contain the term, so hosting request-body logging must stay disabled. The application logger does not log search terms. GA4 event context is forced to `origin + pathname` for both `page_location` and `page_referrer`; the search event contains only a result count. Search inputs and the search page are masked from Clarity, but Clarity URL masking is an external dashboard setting and must be verified before Clarity is enabled. Admin, checkout, and track-order paths suppress page views and Clarity, including a load-time re-check that stops Clarity if a private route is entered while its script is still loading. GA4's Enhanced Measurement **Page changes based on browser history events** setting must be disabled in the GA4 data stream: `send_page_view: false` only suppresses the initial automatic page view, while history-based page views would bypass the application's private-route suppression.
+- Response headers (`next.config.ts`): `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Strict-Transport-Security: max-age=31536000; includeSubDomains`, `X-Powered-By` removed. `/checkout/success`, `/track-order/*`, and `/admin/*` additionally send `Cache-Control: private, no-store` and `X-Robots-Tag: noindex, nofollow`; `/search` sends `Cache-Control: private, no-store` and `X-Robots-Tag: noindex, follow` because its results depend on the visitor's HttpOnly search cookie. No CSP by design — it would have to allow the PayPal JS SDK and Printify-hosted imagery.
 - JSON-LD on the product page is emitted through `dangerouslySetInnerHTML` with `<` escaped to `<`, so a catalog string containing `</script>` or `<!--` cannot break out of the `<script type="application/ld+json">` element.
 - Prisma parameterized queries; no secrets in logs; `.env` gitignored.
 - **Order tracking** is login-free and capability-based: the URL token is 192 bits of randomness (`randomBytes(24)` → base64url), never derived from the order number/id; reading a tracking page reveals order status, items and tracking only. The number+email lookup and the token page are rate limited per IP (10/min), and lookup failures always return the same generic message (`We couldn't find an order matching those details…`) so orders cannot be enumerated.
@@ -152,15 +158,18 @@ Shipping/tax is intentionally out of scope for Phase 5 (shipping is exactly zero
 
 ## 10. Environment variables (canonical, no aliases)
 
-Required: `DATABASE_URL`, `AUTH_SECRET`, `NEXT_PUBLIC_APP_URL`, `STORE_CURRENCY`.
-Integration (degrade safely when absent): `AUTH_URL`, `NEXT_PUBLIC_SITE_NAME`, `NEXT_PUBLIC_SITE_TAGLINE`, `PRINTIFY_*` (5), `PAYPAL_*` (4) + `NEXT_PUBLIC_PAYPAL_CLIENT_ID`, `RESEND_API_KEY`, `EMAIL_FROM`, `SUPPORT_EMAIL`, `CRON_SECRET` (Vercel Cron bearer — unset ⇒ both `/api/cron/*` respond 503, fail closed).
+Runtime: Node.js `>=22.13.0 <23` (`.nvmrc`/`.node-version` pin `22.23.1`) and pnpm `11.5.2` (`packageManager`). Node 22.13 is the floor required by pnpm 11; Vitest 5 also requires Node 22.12+.
+Required: `DATABASE_URL`, `AUTH_SECRET` (at least 32 characters), `NEXT_PUBLIC_APP_URL`, `STORE_CURRENCY`.
+Integration (degrade safely when absent): `NEXT_PUBLIC_SITE_NAME`, `NEXT_PUBLIC_SITE_TAGLINE`, `PRINTIFY_*` (5), `PAYPAL_*` (4) + `NEXT_PUBLIC_PAYPAL_CLIENT_ID`, `RESEND_API_KEY`, `EMAIL_FROM`, `SUPPORT_EMAIL`, `CRON_SECRET` (Vercel Cron bearer — unset ⇒ both `/api/cron/*` respond 503, fail closed).
+Admin: `ADMIN_USERNAME` + `ADMIN_PASSWORD` enable `/admin`; `AUTH_SECRET` binds admin sessions. Leave both credentials unset to keep admin unusable.
+Analytics: `NEXT_PUBLIC_GA_MEASUREMENT_ID` and `NEXT_PUBLIC_CLARITY_PROJECT_ID` are optional and compiled at build time. Changing either requires a new build; analytics stays off until visitor consent. Keep Clarity unset until its URL masking is enabled and verified, because DOM masking does not cover URLs.
 Email: `RESEND_API_KEY` + `EMAIL_FROM` (e.g. `Zitsy <orders@yourdomain.com>`, a domain verified in Resend) enable customer/admin notifications; `SUPPORT_EMAIL` is the store inbox that receives admin notifications and contact-form messages (separate from the customer-facing `EMAIL_FROM`); `RESEND_API_URL` is a **test-only** override of the Resend API base URL that points the SDK at a local stub — leave it unset in production.
-Deployment: the checked-in `.env` is a local development configuration. A production deployment must set real values — Postgres `DATABASE_URL`, a production `PAYPAL_ENVIRONMENT=production`, `PAYPAL_WEBHOOK_ID` / `PRINTIFY_WEBHOOK_SECRET` paired in the provider dashboards, `CRON_SECRET`, a verified-domain `EMAIL_FROM`/`SUPPORT_EMAIL`, and a non-localhost `NEXT_PUBLIC_APP_URL` (a production build refuses to proceed with a localhost URL by design, and `emailConfig()` refuses to send when `NEXT_PUBLIC_APP_URL` is localhost).
+Deployment: only `.env.example` is committed; `.env` is a developer-local file and is gitignored. A production deployment must set real values — Postgres `DATABASE_URL`, a production `PAYPAL_ENVIRONMENT=production`, `PAYPAL_WEBHOOK_ID` / `PRINTIFY_WEBHOOK_SECRET` paired in the provider dashboards, `CRON_SECRET`, admin credentials, a verified-domain `EMAIL_FROM`/`SUPPORT_EMAIL`, and a non-localhost `NEXT_PUBLIC_APP_URL` (a production build refuses to proceed with a localhost URL by design, and `emailConfig()` refuses to send when `NEXT_PUBLIC_APP_URL` is localhost). The `*.vercel.app` restriction is operational, not code-enforced. Run the 8 migrations before serving traffic; see [`DEPLOYMENT.md`](DEPLOYMENT.md) for the ordered migration and rollback runbook.
 Checkout/PayPal buttons disable cleanly when PayPal is not configured; catalog pages serve the local DB regardless.
 
 ## 11. Phase gates
 
-Phase 1 foundation boots (app + DB + env validation) → Phase 2 real catalog sync verified → Phase 3 storefront with correct variant resolution → Phase 4 cart/orders → Phase 5 PayPal verified → Phase 6 fulfillment → Phase 7 commerce (pricing/FX/shipping) → Phase 8 email/tracking/support → Phase 9 auth/account → Phase 10 polish → Phase 11 verification. If a gate fails (DB down, sync wrong, variant resolution wrong, payment verification weak), stop before the next phase.
+Phase 1 foundation boots (app + DB + env validation) → Phase 2 real catalog sync verified → Phase 3 storefront with correct variant resolution → Phase 4 cart/orders → Phase 5 PayPal verified → Phase 6 fulfillment → Phase 7 commerce (pricing/FX/shipping) → Phase 8 email/tracking/support → Phase 9 admin analytics + privacy hardening → Phase 10 polish → Phase 11 verification. Customer accounts are not in the current scope. If a gate fails (DB down, sync wrong, variant resolution wrong, payment verification weak), stop before the next phase.
 
 ## 12. Progress log
 
@@ -267,25 +276,38 @@ Phase 1 foundation boots (app + DB + env validation) → Phase 2 real catalog sy
 - **Tracking link possession = read-only access** by design (no login). Tokens are random, revocable only by regenerating them, and never appear in list pages.
 - **Live Resend sending was not exercised in this phase** — delivery is verified against a local HTTP stub that speaks the Resend API shape.
 
+### Phase 9 — Admin analytics, privacy hardening, deployment readiness (DONE)
+- **Runtime pin.** Added `.nvmrc`/`.node-version` (`22.23.1`) and `package.json` `engines` (`>=22.13.0 <23`); aligned `@types/node` to 22. pnpm `11.5.2` remains the package manager. This fixes the previous ambiguity where the default shell Node 20 could not run pnpm 11.
+- **Admin authorization.** Added `src/lib/admin/guard.ts` (`requireAdminPage`) and used it in `/admin/analytics`; the page no longer reads the session inline. Removed the unused boolean `requireAdmin` helper. Added guard unit tests plus the existing unauthenticated E2E redirect.
+- **Search privacy.** Search forms now post through a server action and store the current term in an HttpOnly SameSite=Lax session cookie scoped to `/search`, so `/search` has no `?q=`. `src/proxy.ts` redirects legacy `?q=` URLs and carries the term in that cookie; the original inbound URL can still be retained by browser history or edge logs before the redirect, which is a residual limitation outside the app. Search analytics sends only `{ results }`. GA4 `page_location`/`page_referrer` are sanitised to `origin + pathname`, and the search page and header form remain `data-clarity-mask="true"`. Clarity URL masking remains an external setting and Clarity stays disabled until it is verified.
+- **Clarity route race.** Added `syncClarityRoute()` and a load callback: Clarity is not injected on private routes, a script that finishes loading after entry into a private route is stopped, and leaving a private route starts it again. Regression tests cover public/private mapping, private-before-load, load-after-private, and private-to-public transitions.
+- **Purchase analytics.** Added `shouldTrackPurchase()` so the purchase event requires `paidAt != null` and a status other than `CANCELLED`. Browser dedupe remains per order number in local/session storage; there is still no refund event or cross-browser dedupe. The database remains the sales source of truth.
+- **Dependency audit.** Updated transitive `lodash` to `4.18.1` and `fast-uri` to `3.1.9` within their existing parent ranges. Pinned `vite@^8.3.5` as a direct devDependency so Vitest no longer resolves the vulnerable `8.3.2` optional peer; this is a normal dependency pin, not a pnpm override. The full `pnpm audit` (including dev tooling) is clean; no overrides were added. Prisma remains `7.10.1`; Prisma 8 is still a release candidate and is not adopted.
+- **Docs and configuration.** Added `docs/DEPLOYMENT.md`, replaced the generic README deployment guidance, updated `.env.example` with `SUPPORT_EMAIL` and the Node requirement, and refreshed the architecture's stale auth/FX/shipping/catalog/migration details.
+- **Verification.** `pnpm typecheck`, `pnpm lint`, `pnpm test` **402/402 across 43 files**, `pnpm test:e2e` **18/18**, and production `next build` all pass under Node `22.23.1`. Migrations total **8**.
+
 ### Final production-readiness audit
-- **Outcome: READY WITH REQUIRED PRE-LAUNCH ACTIONS.** No code blockers remain after this audit; the readiness blockers are environment/credential configuration described under *Required pre-launch actions* below.
+- **Outcome: READY WITH REQUIRED PRE-LAUNCH ACTIONS.** No unfixed code blockers remain; the readiness blockers are environment/credential configuration described under *Required pre-launch actions* below. A follow-up review found and fixed the search URL analytics leak described below.
 - **Fixed in this audit:**
+  - **Search terms leaked through search URLs (HIGH).** `/search?q=...` exposed the raw term in the URL, browser history, referrers, and GA4 page context; DOM masking did not cover URLs. Search now posts through a server action into an HttpOnly session cookie, legacy links are redirected by `src/proxy.ts`, and GA4 page context is sanitised to `origin + pathname`. Clarity remains disabled until its external URL masking is verified.
   - **Order reuse ignored address edits (HIGH).** `beginCheckout` reused an in-flight `PAYMENT_PENDING` order when email + total + cart snapshot matched. Flat-rate shipping makes two different GB addresses cost the same, so an address-only edit was silently shipped to the customer's previous address. The reuse predicate now compares the full contact + shipping address too (`recipientName, address1, address2, city, region, postalCode, country, phone`); any change cancels the old order and creates a new one.
   - **Paid order could sit unfulfilled with no retry (HIGH).** Fulfillment failures were recorded but nothing ever ran the idempotent `fulfillPaidOrder` again, and the customer-facing message promised an automatic retry that did not exist. Now (a) the already-paid early-return branches in `captureOrderPayment`/`confirmCapturedPayment` also retry fulfillment on every later capture/webhook event, and (b) a new scheduled sweep `/api/cron/fulfillment-retry` (daily 03:15 UTC, `CRON_SECRET`-protected, timing-safe) re-runs `fulfillPaidOrder` for `PAID`/unsubmitted orders stuck on a transient `printify_unavailable` error, bounded by `fulfillmentAttempts < 10` (batch 20). Ambiguous creates and data errors are deliberately excluded (recreate would risk duplicates; retrying cannot fix data).
   - **Clean-checkout build failed (BLOCKER/deployment).** `src/generated/` is gitignored and nothing regenerated it, so a fresh install/deploy could not build. `package.json` now has `postinstall: prisma generate` and `build: prisma generate && next build`.
   - **No baseline security headers (MEDIUM).** `next.config.ts` now sets the header set in §9 (no CSP by design) and `Cache-Control: private, no-store` on `/checkout/success` and `/track-order/*`; `X-Powered-By` removed.
   - **JSON-LD `</script>` breakout (MEDIUM).** The product page's `application/ld+json` used `dangerouslySetInnerHTML` with unescaped `JSON.stringify`; `<` is now escaped to `\u003c` so a catalog string cannot break out of the script element.
   - **Cron bearer comparison not timing-safe (LOW).** Both cron routes now share `src/lib/cron/auth.ts` (`verifyCronAuth`, length-checked `timingSafeEqual`).
+- **Follow-up release-review fixes.** Removed the query-based `SearchAction` from site JSON-LD; admin paid metrics now exclude `CANCELLED` orders; search and purchase tracking dedupe state is keyed to the current query/order so new events are not suppressed; removed the unused `AUTH_URL`; documented `AUTH_SECRET` generation, canonical URL validation, proxy IP trust assumptions, and the residual legacy-search exposure; added cancellation analytics and structured-data E2E regressions.
 - **Required pre-launch actions (environment/credentials in the deployment environment, not code):**
-  1. `DATABASE_URL` → the production Postgres (`.env` currently points at `localhost`).
-  2. `NEXT_PUBLIC_APP_URL` / `AUTH_URL` → the real production domain (dev uses `localhost`; a production build refuses localhost by design).
+  1. `DATABASE_URL` → the production Postgres (the local `.env` currently points at `localhost`).
+  2. `NEXT_PUBLIC_APP_URL` → the real production domain (dev uses `localhost`; a production build refuses localhost by design).
   3. `PAYPAL_ENVIRONMENT=production` (currently `sandbox`) with the matching production `PAYPAL_CLIENT_ID`/`PAYPAL_CLIENT_SECRET`, and `PAYPAL_WEBHOOK_ID` set to a **real-verified webhook** (currently empty ⇒ `/api/webhooks/paypal` 503s, fail closed).
   4. `PRINTIFY_WEBHOOK_SECRET` → the same secret configured at Printify for `product:created/updated/deleted/order:status` webhooks (currently empty ⇒ `/api/webhooks/printify` 503s, fail closed).
   5. `CRON_SECRET` → a random value (missing ⇒ catalog + fulfillment-retry crons 503).
   6. `EMAIL_FROM` / `SUPPORT_EMAIL` → a **Resend-verified** sender/domain (currently `zitsy.example` placeholders); any customer email to an unverified domain is a configuration 403 from Resend, not an app bug.
-  7. Run `prisma migrate deploy` against production before turning traffic on (6 migrations).
-  8. Vercel: configure all env vars for the Production environment. **Cron cadence is Hobby-compatible (§3).** Both crons run at most once per day (`0 3 * * *` catalog sync, `15 3 * * *` fulfillment retry); the fulfillment sweep makes no hourly assumption — it is stateless, idempotent and bounded, so daily execution is safe. **Documented trade-off of Hobby's once-per-day cron limit:** a paid order held on a transient Printify error is now re-attempted at most once per day (fastest retry is still the PayPal-side already-paid branches, which run on each later capture/webhook event); the customer message ("We will retry automatically") makes no timing promise, so it stays accurate. A paid plan (or external cron) would allow a tighter cadence without any code change.
-- **Verification (§32):** `pnpm typecheck` ✓, `pnpm lint` ✓ (0/0), `pnpm test` **324/324 across 31 files**, `pnpm build` ✓ (16 routes, evaluated with `NEXT_PUBLIC_APP_URL=https://zitsy.example` per the localhost guard; a localhost `.env` intentionally fails a production build), `pnpm test:e2e` **11/11**. All unconfigured integration endpoints verified to fail closed (503) against the production build.
+  7. Run `prisma migrate deploy` against production before turning traffic on (8 migrations).
+  8. Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` to a long, unique pair if the admin dashboard is required; leave both unset to keep it unusable.
+  9. Vercel: configure all env vars for the Production environment. **Cron cadence is Hobby-compatible (§3).** Both crons run at most once per day (`0 3 * * *` catalog sync, `15 3 * * *` fulfillment retry); the fulfillment sweep makes no hourly assumption — it is stateless, idempotent and bounded, so daily execution is safe. **Documented trade-off of Hobby's once-per-day cron limit:** a paid order held on a transient Printify error is now re-attempted at most once per day (fastest retry is still the PayPal-side already-paid branches, which run on each later capture/webhook event); the customer message ("We will retry automatically") makes no timing promise, so it stays accurate. A paid plan (or external cron) would allow a tighter cadence without any code change.
+- **Verification (§32):** `pnpm typecheck` ✓, `pnpm lint` ✓ (0/0), `pnpm test` **402/402 across 43 files**, `pnpm build` ✓ (evaluated with `NEXT_PUBLIC_APP_URL=https://zitsy.example` per the localhost guard; a localhost `.env` intentionally fails a production build), `pnpm test:e2e` **18/18**, all under Node `22.23.1` with pnpm `11.5.2`. All unconfigured integration endpoints verified to fail closed (503) against the production build.
 
 ### Next phase
-Phase 9 — auth/account. Phase 10 polish, Phase 11 verification.
+Phase 10 — polish, Phase 11 — final verification. Customer accounts are not planned in the current scope.

@@ -94,6 +94,16 @@ function client(): PrintifyClient {
   return new PrintifyClient({ token: "tok", shopId: "shop-1" });
 }
 
+function loadCatalogProduct(printifyId: string) {
+  return db.product.findUniqueOrThrow({
+    where: { printifyId },
+    include: {
+      images: { orderBy: { position: "asc" } },
+      variants: { orderBy: { printifyVariantId: "asc" } },
+    },
+  });
+}
+
 beforeAll(async () => {
   await db.catalogSyncRun.deleteMany();
   await db.product.deleteMany();
@@ -304,5 +314,189 @@ describe("catalog sync (integration)", () => {
       title: "Brand New",
     });
     expect(again.created).toBe(false);
+  });
+
+  it("rolls back a failed image replacement and recovers on retry", async () => {
+    const originalImage = "https://images.printify.com/mockup/atomic-original.jpg";
+    const original = {
+      ...mugFixture,
+      id: "PRD-ATOMIC-IMAGES",
+      title: "Atomic Images",
+      images: [{ src: originalImage, is_default: true }],
+    };
+    await upsertProductFromApi(original);
+
+    await expect(
+      upsertProductFromApi({
+        ...original,
+        title: "Broken Images",
+        images: [
+          { src: "https://images.printify.com/mockup/duplicate.jpg", is_default: true },
+          { src: "https://images.printify.com/mockup/duplicate.jpg" },
+        ],
+      }),
+    ).rejects.toThrow();
+
+    const afterFailure = await loadCatalogProduct("PRD-ATOMIC-IMAGES");
+    expect(afterFailure.title).toBe("Atomic Images");
+    expect(afterFailure.images.map((image) => image.src)).toEqual([originalImage]);
+    expect(afterFailure.variants).toHaveLength(2);
+
+    const recoveredImage = "https://images.printify.com/mockup/atomic-recovered.jpg";
+    await upsertProductFromApi({
+      ...original,
+      title: "Recovered Images",
+      images: [{ src: recoveredImage, is_default: true }],
+    });
+
+    const recovered = await loadCatalogProduct("PRD-ATOMIC-IMAGES");
+    expect(recovered.title).toBe("Recovered Images");
+    expect(recovered.images.map((image) => image.src)).toEqual([recoveredImage]);
+  });
+
+  it("rolls back earlier variant changes when a later variant fails", async () => {
+    const originalImage = "https://images.printify.com/mockup/variant-original.jpg";
+    const original = {
+      ...mugFixture,
+      id: "PRD-ATOMIC-VARIANTS",
+      title: "Atomic Variants",
+      images: [{ src: originalImage, is_default: true }],
+    };
+    await upsertProductFromApi(original);
+
+    const changedImage = "https://images.printify.com/mockup/variant-changed.jpg";
+    const failing = {
+      ...original,
+      title: "Partial Variants",
+      images: [{ src: changedImage, is_default: true }],
+      variants: [
+        { ...mugFixture.variants![0], cost: 1400 },
+        { ...mugFixture.variants![1], cost: 9_000_000_000 },
+      ],
+    };
+
+    await expect(upsertProductFromApi(failing)).rejects.toThrow();
+
+    const afterFailure = await loadCatalogProduct("PRD-ATOMIC-VARIANTS");
+    expect(afterFailure.title).toBe("Atomic Variants");
+    expect(afterFailure.images.map((image) => image.src)).toEqual([originalImage]);
+    expect(
+      afterFailure.variants.find((variant) => variant.printifyVariantId === 1001)
+        ?.costMinor,
+    ).toBe(pricingFromCost(1000)!.costMinor);
+    expect(
+      afterFailure.variants.find((variant) => variant.printifyVariantId === 1002)
+        ?.costMinor,
+    ).toBe(pricingFromCost(1200)!.costMinor);
+
+    await upsertProductFromApi({
+      ...failing,
+      title: "Recovered Variants",
+      variants: [
+        { ...mugFixture.variants![0], cost: 1400 },
+        { ...mugFixture.variants![1], cost: 1200 },
+      ],
+    });
+
+    const recovered = await loadCatalogProduct("PRD-ATOMIC-VARIANTS");
+    expect(recovered.title).toBe("Recovered Variants");
+    expect(recovered.images.map((image) => image.src)).toEqual([changedImage]);
+    expect(
+      recovered.variants.find((variant) => variant.printifyVariantId === 1001)
+        ?.costMinor,
+    ).toBe(pricingFromCost(1400)!.costMinor);
+  });
+
+  it("does not let a stale full-sync snapshot overwrite a newer webhook snapshot", async () => {
+    const productId = "PRD-RACE-FULL-SYNC";
+    const initialImage = "https://images.printify.com/mockup/race-initial.jpg";
+    const freshImage = "https://images.printify.com/mockup/race-fresh.jpg";
+    const initial = {
+      ...mugFixture,
+      id: productId,
+      title: "Initial Race",
+      images: [{ src: initialImage, is_default: true }],
+    };
+    await upsertProductFromApi(initial);
+
+    const stale = {
+      ...initial,
+      title: "Stale Full Sync",
+      description: "stale",
+      images: [{ src: "https://images.printify.com/mockup/race-stale.jpg", is_default: true }],
+    };
+    const fresh = {
+      ...initial,
+      title: "Fresh Webhook",
+      description: "fresh",
+      images: [{ src: freshImage, is_default: true }],
+      variants: [
+        { ...mugFixture.variants![0], cost: 1400 },
+        { ...mugFixture.variants![1], cost: 1200 },
+      ],
+    };
+
+    const fake = {
+      getAllProducts: async () => {
+        // A webhook is applied after the full-sync list snapshot was taken,
+        // but before the stale snapshot is written back.
+        await processPrintifyWebhook(client(), {
+          id: "evt-race-full-sync",
+          type: "product:updated",
+          created_at: new Date(Date.now() + 60_000).toISOString(),
+          data: { resource_id: productId, resource: fresh },
+        });
+        return [stale];
+      },
+    } as unknown as PrintifyClient;
+
+    const summary = await syncCatalog(fake);
+    expect(summary.errors).toEqual([]);
+
+    const row = await loadCatalogProduct(productId);
+    expect(row.title).toBe("Fresh Webhook");
+    expect(row.description).toBe("fresh");
+    expect(row.images.map((image) => image.src)).toEqual([freshImage]);
+    expect(
+      row.variants.find((variant) => variant.printifyVariantId === 1001)?.costMinor,
+    ).toBe(pricingFromCost(1400)!.costMinor);
+  });
+
+  it("ignores a stale webhook snapshot after a newer full sync", async () => {
+    const productId = "PRD-RACE-WEBHOOK";
+    const initialImage = "https://images.printify.com/mockup/race-webhook-initial.jpg";
+    const initial = {
+      ...mugFixture,
+      id: productId,
+      title: "Initial Webhook Race",
+      images: [{ src: initialImage, is_default: true }],
+    };
+    await upsertProductFromApi(initial);
+
+    const fresh = {
+      ...initial,
+      title: "Fresh Full Sync",
+      description: "fresh-full",
+    };
+    stubCatalogFetch([fresh]);
+    await syncCatalog(client());
+
+    const stale = {
+      ...initial,
+      title: "Stale Webhook",
+      description: "stale-webhook",
+    };
+    const status = await processPrintifyWebhook(client(), {
+      id: "evt-race-webhook",
+      type: "product:updated",
+      created_at: "2020-01-01T00:00:00.000Z",
+      data: { resource_id: productId, resource: stale },
+    });
+    expect(status).toBe("processed");
+
+    const row = await loadCatalogProduct(productId);
+    expect(row.title).toBe("Fresh Full Sync");
+    expect(row.description).toBe("fresh-full");
+    expect(row.images.map((image) => image.src)).toEqual([initialImage]);
   });
 });

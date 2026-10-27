@@ -1,4 +1,4 @@
-import { Prisma, type PrismaClient } from "@/generated/prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 
 import { storeCurrency } from "@/lib/config/env";
 import { db } from "@/lib/db/prisma";
@@ -30,10 +30,29 @@ function message(err: unknown): string {
 /**
  * Upsert one Printify product (and replace its images + variants) atomically.
  * Safe to call repeatedly — from the full sync, from a webhook, or from a retry.
+ *
+ * `snapshotVersion` orders complete snapshots. A full sync uses the time its
+ * catalog snapshot was taken; a webhook uses the event's creation time. An
+ * older snapshot must never overwrite a newer one.
  */
 export async function upsertProductFromApi(
   product: PrintifyProduct,
-  tx: Tx | PrismaClient = db,
+  tx?: Tx,
+  snapshotVersion: Date = new Date(),
+): Promise<{ created: boolean }> {
+  if (tx) return upsertProductInTransaction(product, tx, snapshotVersion);
+
+  return db.$transaction(
+    (transaction) =>
+      upsertProductInTransaction(product, transaction, snapshotVersion),
+    { maxWait: 10_000, timeout: 60_000 },
+  );
+}
+
+async function upsertProductInTransaction(
+  product: PrintifyProduct,
+  tx: Tx,
+  snapshotVersion: Date,
 ): Promise<{ created: boolean }> {
   const currency = storeCurrency();
   const options = product.options ?? [];
@@ -53,35 +72,47 @@ export async function upsertProductFromApi(
   });
 
   const slug = existing?.slug ?? (await uniqueSlug(toSlug(product.title), tx));
+  const fields = {
+    title: product.title,
+    description: product.description ?? "",
+    tags: product.tags ?? [],
+    options: options as unknown as Prisma.InputJsonValue,
+    visible: product.visible ?? true,
+    blueprintId: product.blueprint_id ?? null,
+    printProviderId: product.print_provider_id ?? null,
+    currency,
+    minPriceMinor,
+  };
 
-  const record = await tx.product.upsert({
-    where: { printifyId: product.id },
-    create: {
-      printifyId: product.id,
-      slug,
-      title: product.title,
-      description: product.description ?? "",
-      tags: product.tags ?? [],
-      options: options as unknown as Prisma.InputJsonValue,
-      visible: product.visible ?? true,
-      blueprintId: product.blueprint_id ?? null,
-      printProviderId: product.print_provider_id ?? null,
-      currency,
-      minPriceMinor,
-    },
-    update: {
-      title: product.title,
-      description: product.description ?? "",
-      tags: product.tags ?? [],
-      options: options as unknown as Prisma.InputJsonValue,
-      visible: product.visible ?? true,
-      blueprintId: product.blueprint_id ?? null,
-      printProviderId: product.print_provider_id ?? null,
-      currency,
-      minPriceMinor,
-      syncedAt: new Date(),
-    },
-  });
+  let record: { id: string; slug: string };
+  if (existing) {
+    const claimed = await tx.product.updateMany({
+      where: { id: existing.id, syncedAt: { lte: snapshotVersion } },
+      data: { ...fields, syncedAt: snapshotVersion },
+    });
+    if (claimed.count === 0) return { created: false };
+    record = existing;
+  } else {
+    // Upsert avoids a create/update race for a product that first appears in
+    // both a full sync and a webhook. The conditional update below still
+    // decides whether this snapshot is the newest one.
+    record = await tx.product.upsert({
+      where: { printifyId: product.id },
+      create: {
+        printifyId: product.id,
+        slug,
+        ...fields,
+        syncedAt: snapshotVersion,
+      },
+      update: {},
+      select: { id: true, slug: true },
+    });
+    const claimed = await tx.product.updateMany({
+      where: { id: record.id, syncedAt: { lte: snapshotVersion } },
+      data: { ...fields, syncedAt: snapshotVersion },
+    });
+    if (claimed.count === 0) return { created: true };
+  }
 
   await tx.productImage.deleteMany({ where: { productId: record.id } });
   const images = product.images ?? [];
@@ -182,13 +213,16 @@ export async function syncCatalog(
   };
 
   try {
+    // A single version for the whole catalog snapshot. Webhook snapshots
+    // observed after this point are newer and must win over this stale view.
+    const snapshotVersion = new Date();
     const products = await client.getAllProducts();
     summary.productsSeen = products.length;
     const seenIds: string[] = [];
 
     for (const product of products) {
       try {
-        await upsertProductFromApi(product);
+        await upsertProductFromApi(product, undefined, snapshotVersion);
         summary.productsUpserted += 1;
         seenIds.push(product.id);
       } catch (err) {
@@ -198,9 +232,16 @@ export async function syncCatalog(
     }
 
     if (seenIds.length > 0) {
+      const unseen = { printifyId: { notIn: seenIds } };
       const hidden = await db.product.updateMany({
-        where: { printifyId: { notIn: seenIds }, visible: true },
-        data: { visible: false, syncedAt: new Date() },
+        where: { ...unseen, visible: true, syncedAt: { lte: snapshotVersion } },
+        data: { visible: false, syncedAt: snapshotVersion },
+      });
+      // Keep the version current for already-hidden rows too, so a delayed
+      // pre-deletion update cannot make them visible again.
+      await db.product.updateMany({
+        where: { ...unseen, visible: false, syncedAt: { lte: snapshotVersion } },
+        data: { syncedAt: snapshotVersion },
       });
       summary.productsHidden = hidden.count;
     }

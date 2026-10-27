@@ -53,7 +53,7 @@ export default async function CheckoutPage() {
   const totalMinor = cart.subtotalMinor + shippingMinor;
 
   return (
-    <div className="container-page py-10 sm:py-14">
+    <div data-clarity-mask="true" className="container-page py-10 sm:py-14">
       <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
         Checkout
       </h1>
@@ -64,9 +64,12 @@ export default async function CheckoutPage() {
       <div className="mt-8">
         <CheckoutForm
           lines={cart.lines.map((line) => ({
+            productId: line.productId,
+            variantId: line.variantId,
             title: line.productTitle,
             variantTitle: line.variantTitle,
             quantity: line.quantity,
+            unitPriceMinor: line.unitPriceMinor,
             totalPriceMinor: line.lineTotalMinor,
             currency: line.currency,
           }))}

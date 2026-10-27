@@ -4,7 +4,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
+import {
+  CONSENT_CHANGED_EVENT,
+  hasAnalyticsConsent,
+  trackEvent,
+} from "@/lib/analytics/client";
+import { ecommerceParams, viewItemParams } from "@/lib/analytics/events";
+import type { AnalyticsLineInput } from "@/lib/analytics/events";
 import { addToCart } from "@/lib/cart/actions";
+import { deriveCategoryForProduct } from "@/lib/catalog/categories";
 import {
   availableValueIdsForDim,
   hasDistinctPrices,
@@ -178,6 +186,31 @@ export function ProductView({ product }: Props) {
   );
 
   const canAdd = resolved !== null && !productUnavailable && !selectedUnavailable;
+  const trackedProductView = useRef(false);
+  const analyticsLine = useMemo<AnalyticsLineInput>(
+    () => ({
+      productId: product.id,
+      variantId: resolved?.id ?? `product:${product.id}`,
+      productTitle: product.title,
+      variantTitle: resolved?.title ?? "Default",
+      unitPriceMinor: resolved?.priceMinor ?? product.minPriceMinor,
+      quantity: 1,
+      currency: product.currency,
+      category: deriveCategoryForProduct(product.tags).name,
+    }),
+    [product, resolved],
+  );
+
+  useEffect(() => {
+    const send = () => {
+      if (trackedProductView.current || !hasAnalyticsConsent()) return;
+      trackedProductView.current = true;
+      trackEvent("view_item", viewItemParams(analyticsLine));
+    };
+    send();
+    window.addEventListener(CONSENT_CHANGED_EVENT, send);
+    return () => window.removeEventListener(CONSENT_CHANGED_EVENT, send);
+  }, [analyticsLine]);
 
   const handleAdd = () => {
     if (!canAdd || !resolved) return;
@@ -188,6 +221,12 @@ export function ProductView({ product }: Props) {
         variantId,
         quantity,
       });
+      if (result.ok) {
+        trackEvent(
+          "add_to_cart",
+          ecommerceParams([{ ...analyticsLine, quantity }]),
+        );
+      }
       setNote(
         result.ok
           ? { ok: true, text: "Added to your cart." }

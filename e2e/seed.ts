@@ -15,6 +15,7 @@ export interface SeededOrder {
 
 /** Wipes the dedicated E2E database so each spec starts from a known state. */
 export async function resetStore(): Promise<void> {
+  await db.rateLimitBucket.deleteMany();
   await db.webhookEvent.deleteMany();
   await db.payment.deleteMany();
   await db.orderItem.deleteMany();

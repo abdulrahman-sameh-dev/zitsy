@@ -8,7 +8,14 @@ export default function robots() {
         allow: "/",
         // Private, session-specific, or search-result routes. These are also
         // `noindex`; keep crawlers away to avoid wasted crawl budget.
-        disallow: ["/api/", "/cart", "/checkout", "/track-order", "/search"],
+        disallow: [
+          "/admin",
+          "/api/",
+          "/cart",
+          "/checkout",
+          "/track-order",
+          "/search",
+        ],
       },
     ],
     sitemap: `${site.url}/sitemap.xml`,

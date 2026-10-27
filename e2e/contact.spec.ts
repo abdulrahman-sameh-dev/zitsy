@@ -16,6 +16,11 @@ test("shows the support form", async ({ page }) => {
   await expect(page.getByLabel(/Reason/)).toBeVisible();
   await expect(page.getByLabel("Message")).toBeVisible();
   await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();
+  await expect(
+    page
+      .locator('[data-clarity-mask="true"]')
+      .filter({ has: page.getByLabel("Message") }),
+  ).toBeVisible();
 });
 
 test("validates the form server-side", async ({ page }) => {

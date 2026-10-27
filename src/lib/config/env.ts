@@ -20,7 +20,6 @@ const serverSchema = z.object({
   AUTH_SECRET: z
     .string()
     .min(32, "AUTH_SECRET must be at least 32 characters"),
-  AUTH_URL: z.string().url().optional().or(z.literal("")),
   STORE_CURRENCY: z
     .string()
     .trim()
@@ -95,6 +94,8 @@ const serverSchema = z.object({
     .default("0")
     .transform(Number),
   CRON_SECRET: optionalString,
+  ADMIN_USERNAME: optionalString,
+  ADMIN_PASSWORD: optionalString,
 
   PAYPAL_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox"),
   PAYPAL_CLIENT_ID: optionalString,
@@ -127,6 +128,8 @@ const publicSchema = z.object({
   NEXT_PUBLIC_SITE_NAME: z.string().trim().min(1).default("Zitsy"),
   NEXT_PUBLIC_SITE_TAGLINE: z.string().trim().min(1).default("Easy as Zitsy"),
   NEXT_PUBLIC_PAYPAL_CLIENT_ID: optionalString,
+  NEXT_PUBLIC_GA_MEASUREMENT_ID: optionalString,
+  NEXT_PUBLIC_CLARITY_PROJECT_ID: optionalString,
 });
 
 export type ServerEnv = z.infer<typeof serverSchema>;
@@ -147,7 +150,6 @@ function parse<T extends z.ZodTypeAny>(schema: T, value: Record<string, string |
 const serverRaw = {
   DATABASE_URL: process.env.DATABASE_URL,
   AUTH_SECRET: process.env.AUTH_SECRET,
-  AUTH_URL: process.env.AUTH_URL,
   STORE_CURRENCY: process.env.STORE_CURRENCY,
   PRINTIFY_API_TOKEN: process.env.PRINTIFY_API_TOKEN,
   PRINTIFY_SHOP_ID: process.env.PRINTIFY_SHOP_ID,
@@ -162,6 +164,8 @@ const serverRaw = {
   STORE_MIN_CONTRIBUTION_MINOR: process.env.STORE_MIN_CONTRIBUTION_MINOR,
   STORE_MERCHANT_COST_MINOR: process.env.STORE_MERCHANT_COST_MINOR,
   CRON_SECRET: process.env.CRON_SECRET,
+  ADMIN_USERNAME: process.env.ADMIN_USERNAME,
+  ADMIN_PASSWORD: process.env.ADMIN_PASSWORD,
   PAYPAL_ENVIRONMENT: process.env.PAYPAL_ENVIRONMENT,
   PAYPAL_CLIENT_ID: process.env.PAYPAL_CLIENT_ID,
   PAYPAL_CLIENT_SECRET: process.env.PAYPAL_CLIENT_SECRET,
@@ -179,6 +183,8 @@ const publicRaw = {
   NEXT_PUBLIC_SITE_NAME: process.env.NEXT_PUBLIC_SITE_NAME,
   NEXT_PUBLIC_SITE_TAGLINE: process.env.NEXT_PUBLIC_SITE_TAGLINE,
   NEXT_PUBLIC_PAYPAL_CLIENT_ID: process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID,
+  NEXT_PUBLIC_GA_MEASUREMENT_ID: process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID,
+  NEXT_PUBLIC_CLARITY_PROJECT_ID: process.env.NEXT_PUBLIC_CLARITY_PROJECT_ID,
 };
 
 export const publicEnv: PublicEnv = parse(publicSchema, publicRaw, "public");
@@ -202,6 +208,7 @@ export const integrations = {
   email: Boolean(serverEnv.RESEND_API_KEY) && Boolean(serverEnv.EMAIL_FROM),
   support: Boolean(serverEnv.RESEND_API_KEY) && Boolean(serverEnv.SUPPORT_EMAIL),
   cron: Boolean(serverEnv.CRON_SECRET),
+  admin: Boolean(serverEnv.ADMIN_USERNAME && serverEnv.ADMIN_PASSWORD),
 } as const;
 
 export const appUrl = (): string => publicEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
@@ -215,6 +222,16 @@ export const storeMinContributionMinor = (): number =>
 export const storeMerchantCostMinor = (): number => serverEnv.STORE_MERCHANT_COST_MINOR;
 export const storeFxRatesSpec = (): string => serverEnv.STORE_FX_RATES;
 export const cronSecret = (): string => serverEnv.CRON_SECRET;
+export const adminCredentials = (): {
+  username: string;
+  password: string;
+} | null => {
+  if (!serverEnv.ADMIN_USERNAME || !serverEnv.ADMIN_PASSWORD) return null;
+  return {
+    username: serverEnv.ADMIN_USERNAME,
+    password: serverEnv.ADMIN_PASSWORD,
+  };
+};
 /** Sender identity for all outbound mail ("Zitsy <orders@…>"). */
 export const emailFrom = (): string => serverEnv.EMAIL_FROM ?? "";
 /** Store-side recipient for support + admin notifications. Empty when unset. */

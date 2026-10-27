@@ -2,8 +2,15 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
+import {
+  CONSENT_CHANGED_EVENT,
+  hasAnalyticsConsent,
+  trackEvent,
+} from "@/lib/analytics/client";
+import { ecommerceParams } from "@/lib/analytics/events";
+import type { AnalyticsLineInput } from "@/lib/analytics/events";
 import { LogoMark } from "@/components/brand/logo";
 import {
   clearCartAction,
@@ -13,6 +20,21 @@ import {
 import type { CartLineView, CartView as CartViewModel } from "@/lib/cart/view";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
+
+function analyticsLine(
+  line: CartLineView,
+  quantity = line.quantity,
+): AnalyticsLineInput {
+  return {
+    productId: line.productId,
+    variantId: line.variantId,
+    productTitle: line.productTitle,
+    variantTitle: line.variantTitle,
+    unitPriceMinor: line.unitPriceMinor,
+    quantity,
+    currency: line.currency,
+  };
+}
 
 function reasonLabel(line: CartLineView): string {
   switch (line.unavailableReason) {
@@ -130,7 +152,17 @@ function CartLineRow({
                     itemId: line.itemId,
                     quantity,
                   });
-                  if (!result.ok) onError(result.error);
+                  if (!result.ok) {
+                    onError(result.error);
+                    return;
+                  }
+                  const delta = quantity - line.quantity;
+                  if (delta !== 0) {
+                    trackEvent(
+                      delta > 0 ? "add_to_cart" : "remove_from_cart",
+                      ecommerceParams([analyticsLine(line, Math.abs(delta))]),
+                    );
+                  }
                 })
               }
             />
@@ -145,7 +177,14 @@ function CartLineRow({
             onClick={() =>
               startTransition(async () => {
                 const result = await removeCartItem({ itemId: line.itemId });
-                if (!result.ok) onError(result.error);
+                if (!result.ok) {
+                  onError(result.error);
+                  return;
+                }
+                trackEvent(
+                  "remove_from_cart",
+                  ecommerceParams([analyticsLine(line)]),
+                );
               })
             }
             className="text-sm text-muted underline-offset-4 transition-colors hover:text-brand-700 hover:underline disabled:opacity-40"
@@ -161,6 +200,26 @@ function CartLineRow({
 export function CartView({ cart }: { cart: CartViewModel }) {
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const trackedCartView = useRef(false);
+  const analyticsLines = useMemo(
+    () =>
+      cart.lines
+        .filter((line) => line.available)
+        .map((line) => analyticsLine(line)),
+    [cart.lines],
+  );
+
+  useEffect(() => {
+    if (analyticsLines.length === 0) return;
+    const send = () => {
+      if (trackedCartView.current || !hasAnalyticsConsent()) return;
+      trackedCartView.current = true;
+      trackEvent("view_cart", ecommerceParams(analyticsLines));
+    };
+    send();
+    window.addEventListener(CONSENT_CHANGED_EVENT, send);
+    return () => window.removeEventListener(CONSENT_CHANGED_EVENT, send);
+  }, [analyticsLines]);
 
   if (cart.lines.length === 0) {
     return (

@@ -61,7 +61,7 @@ Current build (after the 2026-10-26 local catalog refresh): **45 URLs** = 1 home
 
 ### 3.4 Structured data
 
-- Site-wide `@graph` JSON-LD in `src/app/layout.tsx`: `Organization`, `WebSite`, and `SearchAction` (`/search?q=`), with `<` escaped to `\u003c` inside the script payload.
+- Site-wide `@graph` JSON-LD in `src/app/layout.tsx`: `Organization` and `WebSite`, with `<` escaped to `\u003c` inside the script payload. No `SearchAction` is emitted because search uses a POST action and an HttpOnly cookie rather than query-string terms.
 - Product pages emit `Product` with `brand`, `offers` (price, `GBP`, `InStock`, `NewCondition`) and `BreadcrumbList` (Home → Shop → Category → Product).
 - Product descriptions in JSON-LD are plain text (no HTML), produced through `toPlainText()` in `src/lib/catalog/description.ts`.
 

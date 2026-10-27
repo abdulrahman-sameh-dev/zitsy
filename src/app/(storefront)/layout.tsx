@@ -1,3 +1,4 @@
+import { Analytics } from "@/components/analytics/analytics";
 import { Footer } from "@/components/storefront/footer";
 import { Header } from "@/components/storefront/header";
 
@@ -9,6 +10,7 @@ export default function StorefrontLayout({ children }: { children: React.ReactNo
         {children}
       </main>
       <Footer />
+      <Analytics />
     </div>
   );
 }

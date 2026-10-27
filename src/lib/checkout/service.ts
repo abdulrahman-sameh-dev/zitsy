@@ -98,6 +98,8 @@ export interface OrderSummary {
     country: string;
   };
   lines: Array<{
+    productId: string;
+    variantId: string;
     title: string;
     variantTitle: string;
     sku: string | null;
@@ -753,6 +755,8 @@ export async function getOrderSummary(
       country: order.country,
     },
     lines: order.items.map((item) => ({
+      productId: item.productId,
+      variantId: item.variantId,
       title: item.title,
       variantTitle: item.variantTitle,
       sku: item.sku,
