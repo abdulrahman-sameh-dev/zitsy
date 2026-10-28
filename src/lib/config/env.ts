@@ -102,6 +102,18 @@ const serverSchema = z.object({
   PAYPAL_CLIENT_SECRET: optionalString,
   PAYPAL_WEBHOOK_ID: optionalString,
 
+  /**
+   * Server-only analytics reporting credentials. These never ship to the
+   * browser; the public GA4/Clarity collection IDs live in `publicSchema`.
+   */
+  VERCEL_ANALYTICS_TOKEN: optionalString,
+  VERCEL_ANALYTICS_PROJECT_ID: optionalString,
+  VERCEL_ANALYTICS_TEAM_ID: optionalString,
+  GA4_PROPERTY_ID: optionalString,
+  GA4_CLIENT_EMAIL: optionalString,
+  GA4_PRIVATE_KEY: optionalString,
+  CLARITY_API_TOKEN: optionalString,
+
   RESEND_API_KEY: optionalString,
   EMAIL_FROM: optionalString,
   /**
@@ -170,6 +182,13 @@ const serverRaw = {
   PAYPAL_CLIENT_ID: process.env.PAYPAL_CLIENT_ID,
   PAYPAL_CLIENT_SECRET: process.env.PAYPAL_CLIENT_SECRET,
   PAYPAL_WEBHOOK_ID: process.env.PAYPAL_WEBHOOK_ID,
+  VERCEL_ANALYTICS_TOKEN: process.env.VERCEL_ANALYTICS_TOKEN,
+  VERCEL_ANALYTICS_PROJECT_ID: process.env.VERCEL_ANALYTICS_PROJECT_ID,
+  VERCEL_ANALYTICS_TEAM_ID: process.env.VERCEL_ANALYTICS_TEAM_ID,
+  GA4_PROPERTY_ID: process.env.GA4_PROPERTY_ID,
+  GA4_CLIENT_EMAIL: process.env.GA4_CLIENT_EMAIL,
+  GA4_PRIVATE_KEY: process.env.GA4_PRIVATE_KEY,
+  CLARITY_API_TOKEN: process.env.CLARITY_API_TOKEN,
   RESEND_API_KEY: process.env.RESEND_API_KEY,
   EMAIL_FROM: process.env.EMAIL_FROM,
   SUPPORT_EMAIL: process.env.SUPPORT_EMAIL,
@@ -209,6 +228,18 @@ export const integrations = {
   support: Boolean(serverEnv.RESEND_API_KEY) && Boolean(serverEnv.SUPPORT_EMAIL),
   cron: Boolean(serverEnv.CRON_SECRET),
   admin: Boolean(serverEnv.ADMIN_USERNAME && serverEnv.ADMIN_PASSWORD),
+  analyticsVercel: Boolean(
+    serverEnv.VERCEL_ANALYTICS_TOKEN &&
+      serverEnv.VERCEL_ANALYTICS_PROJECT_ID,
+  ),
+  analyticsGa4: Boolean(
+    serverEnv.GA4_PROPERTY_ID &&
+      serverEnv.GA4_CLIENT_EMAIL &&
+      serverEnv.GA4_PRIVATE_KEY,
+  ),
+  analyticsClarity: Boolean(
+    serverEnv.CLARITY_API_TOKEN && publicEnv.NEXT_PUBLIC_CLARITY_PROJECT_ID,
+  ),
 } as const;
 
 export const appUrl = (): string => publicEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");

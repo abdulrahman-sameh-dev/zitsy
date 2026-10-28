@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Fraunces, Geist, Geist_Mono } from "next/font/google";
 
 import { site } from "@/lib/config/public-env";
-import { Analytics } from "@vercel/analytics/next"
 
 import "./globals.css";
 
@@ -87,7 +86,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Skip to content
         </a>
         {children}
-        <Analytics />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{

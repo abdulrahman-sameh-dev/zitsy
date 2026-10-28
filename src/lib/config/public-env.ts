@@ -18,13 +18,9 @@ export const site = {
   tagline: raw.NEXT_PUBLIC_SITE_TAGLINE || "Easy as Zitsy",
 } as const;
 
-function readPublicEnv(name: string): string {
-  return process.env[name]?.trim() ?? "";
-}
-
 export const analytics = {
-  ga4MeasurementId: readPublicEnv("NEXT_PUBLIC_GA_MEASUREMENT_ID"),
-  clarityProjectId: readPublicEnv("NEXT_PUBLIC_CLARITY_PROJECT_ID"),
+  ga4MeasurementId: process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID?.trim() ?? "",
+  clarityProjectId: process.env.NEXT_PUBLIC_CLARITY_PROJECT_ID?.trim() ?? "",
 } as const;
 
 export function hasAnalyticsProviders(): boolean {

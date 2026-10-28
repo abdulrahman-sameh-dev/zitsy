@@ -162,7 +162,7 @@ Runtime: Node.js `>=22.13.0 <23` (`.nvmrc`/`.node-version` pin `22.23.1`) and pn
 Required: `DATABASE_URL`, `AUTH_SECRET` (at least 32 characters), `NEXT_PUBLIC_APP_URL`, `STORE_CURRENCY`.
 Integration (degrade safely when absent): `NEXT_PUBLIC_SITE_NAME`, `NEXT_PUBLIC_SITE_TAGLINE`, `PRINTIFY_*` (5), `PAYPAL_*` (4) + `NEXT_PUBLIC_PAYPAL_CLIENT_ID`, `RESEND_API_KEY`, `EMAIL_FROM`, `SUPPORT_EMAIL`, `CRON_SECRET` (Vercel Cron bearer — unset ⇒ both `/api/cron/*` respond 503, fail closed).
 Admin: `ADMIN_USERNAME` + `ADMIN_PASSWORD` enable `/admin`; `AUTH_SECRET` binds admin sessions. Leave both credentials unset to keep admin unusable.
-Analytics: `NEXT_PUBLIC_GA_MEASUREMENT_ID` and `NEXT_PUBLIC_CLARITY_PROJECT_ID` are optional and compiled at build time. Changing either requires a new build; analytics stays off until visitor consent. Keep Clarity unset until its URL masking is enabled and verified, because DOM masking does not cover URLs.
+Analytics: `NEXT_PUBLIC_GA_MEASUREMENT_ID` and `NEXT_PUBLIC_CLARITY_PROJECT_ID` are optional and compiled at build time. Changing either requires a new build; analytics stays off until visitor consent. Keep Clarity unset until its URL masking is enabled and verified, because DOM masking does not cover URLs. Server-only reporting credentials (`VERCEL_ANALYTICS_*`, `GA4_*`, `CLARITY_API_TOKEN`) power the unified `/admin/analytics` cards and are never exposed to the browser; each provider degrades to a setup state independently. Clarity reporting is limited to a 3-day window and 10 requests per project per day, and its API token is project-scoped, so it must belong to `NEXT_PUBLIC_CLARITY_PROJECT_ID`.
 Email: `RESEND_API_KEY` + `EMAIL_FROM` (e.g. `Zitsy <orders@yourdomain.com>`, a domain verified in Resend) enable customer/admin notifications; `SUPPORT_EMAIL` is the store inbox that receives admin notifications and contact-form messages (separate from the customer-facing `EMAIL_FROM`); `RESEND_API_URL` is a **test-only** override of the Resend API base URL that points the SDK at a local stub — leave it unset in production.
 Deployment: only `.env.example` is committed; `.env` is a developer-local file and is gitignored. A production deployment must set real values — Postgres `DATABASE_URL`, a production `PAYPAL_ENVIRONMENT=production`, `PAYPAL_WEBHOOK_ID` / `PRINTIFY_WEBHOOK_SECRET` paired in the provider dashboards, `CRON_SECRET`, admin credentials, a verified-domain `EMAIL_FROM`/`SUPPORT_EMAIL`, and a non-localhost `NEXT_PUBLIC_APP_URL` (a production build refuses to proceed with a localhost URL by design, and `emailConfig()` refuses to send when `NEXT_PUBLIC_APP_URL` is localhost). The `*.vercel.app` restriction is operational, not code-enforced. Run the 8 migrations before serving traffic; see [`DEPLOYMENT.md`](DEPLOYMENT.md) for the ordered migration and rollback runbook.
 Checkout/PayPal buttons disable cleanly when PayPal is not configured; catalog pages serve the local DB regardless.
@@ -285,6 +285,51 @@ Phase 1 foundation boots (app + DB + env validation) → Phase 2 real catalog sy
 - **Dependency audit.** Updated transitive `lodash` to `4.18.1` and `fast-uri` to `3.1.9` within their existing parent ranges. Pinned `vite@^8.3.5` as a direct devDependency so Vitest no longer resolves the vulnerable `8.3.2` optional peer; this is a normal dependency pin, not a pnpm override. The full `pnpm audit` (including dev tooling) is clean; no overrides were added. Prisma remains `7.10.1`; Prisma 8 is still a release candidate and is not adopted.
 - **Docs and configuration.** Added `docs/DEPLOYMENT.md`, replaced the generic README deployment guidance, updated `.env.example` with `SUPPORT_EMAIL` and the Node requirement, and refreshed the architecture's stale auth/FX/shipping/catalog/migration details.
 - **Verification.** `pnpm typecheck`, `pnpm lint`, `pnpm test` **402/402 across 43 files**, `pnpm test:e2e` **18/18**, and production `next build` all pass under Node `22.23.1`. Migrations total **8**.
+
+### Follow-up — Unified provider analytics dashboard
+- `/admin/analytics` now combines the database sales metrics with independent
+  read-only provider cards for Vercel Web Analytics, GA4 Data API, and Microsoft
+  Clarity Data Export. The 7/14/30-day selector applies to Vercel and GA4;
+  Clarity is labelled with its 3-day API window. Providers are never summed and
+  a missing or failing provider degrades only its own card.
+- All provider credentials are server-only. Vercel and GA4 reports are cached
+  for 5 minutes; Clarity is cached for 24 hours to stay inside its 10-request
+  daily quota. Requests use bounded timeouts and return safe setup/error states
+  without exposing credentials.
+- Vercel Web Analytics is now mounted from the consent-aware analytics client
+  (not the root layout), so it loads only after consent and its `beforeSend`
+  drops `/admin`, `/checkout`, and `/track-order` URLs.
+- Fixed the build-time inlining regression in `src/lib/config/public-env.ts`:
+  the GA4 measurement ID and Clarity project ID must be read as static
+  `process.env.NEXT_PUBLIC_*` properties, not through a dynamic key helper.
+- Verification: `pnpm typecheck`, `pnpm lint`, `pnpm test` **422/422 across 46
+  files**, `pnpm test:e2e` **18/18**, and production `next build` all pass under
+  Node `22.23.1`. The built client chunk contains the configured GA4 and Clarity
+  IDs and no dynamic public-env reader.
+
+### Follow-up — Analytics provider failure handling
+- Vercel UTM dimensions require Web Analytics Plus or Enterprise. The provider
+  no longer requests `utmSource`; supported page, referrer, country, device, and
+  event reports remain. Custom-event `402` plan limits are treated as optional
+  limitations rather than partial-data warnings. If the total-count endpoint
+  fails or returns zero while daily rows contain traffic, totals fall back to
+  the daily sums, visitors may be double-counted, and the card is marked partial
+  with an explicit warning. Breakdown data still renders when totals are
+  unavailable.
+- GA4 failures now carry HTTP-specific guidance: 401 credentials, 403 property
+  permission versus disabled Data API, 404 property, and 400 request/property
+  ID. Server logs include the numeric property ID and status but never the
+  service-account email or private key.
+- Clarity distinguishes successful zero sessions, empty responses, and
+  unrecognized/missing metric groups. Zero data points to consent, project
+  scoping, or processing delay rather than asserting a parser bug. The API token
+  is project-scoped and must belong to `NEXT_PUBLIC_CLARITY_PROJECT_ID`.
+- Each configured provider card has an admin-only, tag-based refresh action.
+  Refreshes are rate-limited durably in PostgreSQL (Vercel/GA4: 5 per 10
+  minutes; Clarity: 2 per 6 hours) to protect provider quotas.
+- Verification: `pnpm typecheck`, `pnpm lint`, `pnpm test` **437/437 across 47
+  files**, `pnpm test:e2e` **18/18**, and production `next build` pass under
+  Node `22.23.1`.
 
 ### Final production-readiness audit
 - **Outcome: READY WITH REQUIRED PRE-LAUNCH ACTIONS.** No unfixed code blockers remain; the readiness blockers are environment/credential configuration described under *Required pre-launch actions* below. A follow-up review found and fixed the search URL analytics leak described below.

@@ -35,7 +35,7 @@ test("rejects wrong credentials and signs in with the configured ones", async ({
   await page.getByRole("button", { name: "Sign in" }).click();
 
   await expect(page).toHaveURL(/\/admin\/analytics$/);
-  await expect(page.getByRole("heading", { name: "Analytics" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Analytics", exact: true })).toBeVisible();
   await expect(page.getByText("Paid orders", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out" }).click();

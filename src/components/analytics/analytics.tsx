@@ -17,6 +17,10 @@ import {
 } from "@/lib/analytics/client";
 import type { AnalyticsConsent } from "@/lib/analytics/consent";
 import { hasAnalyticsProviders } from "@/lib/config/public-env";
+import {
+  Analytics as VercelAnalytics,
+  type BeforeSendEvent,
+} from "@vercel/analytics/next";
 
 function subscribeNoop(): () => void {
   return () => {};
@@ -36,6 +40,15 @@ function getConsentSnapshot() {
 
 function getServerConsent() {
   return null;
+}
+
+function beforeSend(event: BeforeSendEvent): BeforeSendEvent | null {
+  try {
+    const path = new URL(event.url, window.location.origin).pathname;
+    return isPrivateAnalyticsPath(path) ? null : event;
+  } catch {
+    return event;
+  }
 }
 
 function ConsentBanner({
@@ -132,15 +145,22 @@ export function Analytics() {
   }, [consent, pathname]);
 
   const bannerOpen = consent === null || forceOpen;
-  if (!configured || !ready || !bannerOpen) return null;
+  if (!ready) return null;
 
   return (
-    <ConsentBanner
-      current={consent}
-      onChoice={(choice) => {
-        chooseAnalyticsConsent(choice);
-        setForceOpen(false);
-      }}
-    />
+    <>
+      {consent === "granted" ? (
+        <VercelAnalytics beforeSend={beforeSend} />
+      ) : null}
+      {configured && bannerOpen ? (
+        <ConsentBanner
+          current={consent}
+          onChoice={(choice) => {
+            chooseAnalyticsConsent(choice);
+            setForceOpen(false);
+          }}
+        />
+      ) : null}
+    </>
   );
 }

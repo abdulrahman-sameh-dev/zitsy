@@ -91,11 +91,48 @@ headers if clients can supply them directly.
 |---|---|
 | `NEXT_PUBLIC_GA_MEASUREMENT_ID` | GA4 measurement ID. Compiled at build time. |
 | `NEXT_PUBLIC_CLARITY_PROJECT_ID` | Microsoft Clarity project ID. Compiled at build time. |
+| `VERCEL_ANALYTICS_TOKEN` | Read-only Vercel API token for Web Analytics reporting. Server-only. |
+| `VERCEL_ANALYTICS_PROJECT_ID` | Vercel project ID (`prj_...`). Server-only. |
+| `VERCEL_ANALYTICS_TEAM_ID` | Optional team ID (`team_...`); needed when the project belongs to a team. |
+| `GA4_PROPERTY_ID` | Numeric GA4 property ID, without a `properties/` prefix. Server-only. |
+| `GA4_CLIENT_EMAIL` | GA4 service-account email with `analytics.readonly`. Server-only. |
+| `GA4_PRIVATE_KEY` | GA4 service-account private key; newlines may be escaped as `\n`. Server-only. |
+| `CLARITY_API_TOKEN` | Clarity Data Export API token. Server-only. |
 
-Analytics is consent-gated in the browser. If you change a `NEXT_PUBLIC_*`
-analytics value, redeploy so the new value is included in the client bundle.
-Admin credentials are server-side runtime values and do not require a rebuild
-when rotated.
+Analytics is consent-gated in the browser, including Vercel Web Analytics,
+which is mounted only after consent and drops `/admin`, `/checkout`, and
+`/track-order` events before sending. If you change a `NEXT_PUBLIC_*` analytics
+value, redeploy so the new value is included in the client bundle. Admin
+credentials and the server-only reporting credentials are runtime values and do
+not require a rebuild when rotated.
+
+The same credentials power `/admin/analytics`. Each provider is reported
+independently: a missing credential shows a setup state for that provider, and
+one failing provider does not hide the others. Do not add provider totals
+together; their definitions and consent behaviour differ. Vercel and GA4
+support 7/14/30-day ranges. Clarity's API supports only a 3-day window, is
+limited to 10 requests per project per day, and has no daily trend or funnel.
+
+Provider failure handling is intentionally specific:
+
+- Vercel UTM breakdowns (`utmSource` and related dimensions) require Web
+  Analytics Plus or Enterprise, so the dashboard does not request them. Custom
+  event reporting is requested but treated as optional: a `402` plan limit is
+  shown as a limitation, not a partial-data warning. Page, referrer, country,
+  and device reports still use the free API. If the total-count endpoint fails
+  while daily rows work, totals are summed from the daily rows and the card is
+  marked partial; visitors may be double-counted.
+- GA4 `403` responses are separated into missing property access (add the
+  service account as a Viewer or Analyst in GA4 Admin) versus a disabled Google
+  Analytics Data API. The numeric property ID and HTTP status appear in the
+  warning and server logs; the service-account email and private key never do.
+- Clarity distinguishes an empty/zero-session response from an unrecognized
+  response shape. Zero values usually mean no consenting visits, a token scoped
+  to another project, or data that Clarity has not processed. The API token is
+  project-scoped, so it must belong to `NEXT_PUBLIC_CLARITY_PROJECT_ID`.
+- Each configured card has a manual **Refresh** action. It is admin-only,
+  tag-based, and rate-limited in PostgreSQL: Vercel/GA4 allow 5 refreshes per
+  10 minutes; Clarity allows 2 per 6 hours to protect its daily API quota.
 
 Keep `NEXT_PUBLIC_CLARITY_PROJECT_ID` empty until URL masking is enabled and
 verified in the Clarity dashboard. DOM `data-clarity-mask` attributes do not
@@ -267,6 +304,9 @@ Smoke checks:
   the address bar must not retain `?q=`.
 - `/admin/analytics` redirects an unauthenticated visitor to `/admin/login`.
 - The configured admin can sign in, see the analytics dashboard, and sign out.
+- `/admin/analytics?range=7|14|30` shows database totals plus independent
+  Vercel, GA4, and Clarity cards. Missing reporting credentials show a setup
+  state for that provider; one provider failing must not hide the others.
 - `/robots.txt` disallows `/admin`, `/checkout`, and `/track-order`.
 - `/checkout` with an empty cart shows the empty state.
 - The public search page and header search input carry
@@ -311,7 +351,20 @@ unless you have explicitly planned those checks with the store owner.
 - Analytics page views and Clarity are suppressed on `/admin`, `/checkout`, and
   `/track-order` paths. The route-level Clarity handling re-checks the current
   path when the script finishes loading, so entering a private route during
-  script load does not leave Clarity tracking.
+  script load does not leave Clarity tracking. Vercel Web Analytics is also
+  mounted only after consent and filters those same private paths in
+  `beforeSend`.
+- `/admin/analytics` reads Vercel Web Analytics, GA4, and Clarity with
+  server-only credentials. Provider reports are cached separately (Vercel/GA4
+  for 5 minutes, Clarity for 24 hours to stay within its request quota). The
+  dashboard never fabricates metrics and never sums across providers. Manual
+  refresh invalidates only the selected provider's cache tag and is rate-limited
+  so it cannot drain the Clarity daily quota.
+- Clarity's Data Export API only accepts a 3-day window and allows 10 requests
+  per project per day. The dashboard therefore labels its card accordingly and
+  does not offer a matching 7/14/30-day trend or funnel. A successful response
+  with zero sessions is labelled as zero data, not treated as a parse error;
+  unrecognized or missing metric groups are marked partial with schema guidance.
 - Before enabling GA4, disable Enhanced Measurement's **Page changes based on
   browser history events** setting for the web data stream. `send_page_view:
   false` only suppresses the tag's initial automatic page view; when the

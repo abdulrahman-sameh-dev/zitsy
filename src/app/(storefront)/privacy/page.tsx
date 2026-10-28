@@ -81,12 +81,11 @@ export default function PrivacyPage() {
         <li>
           <strong>Hosting provider</strong> — application and database hosting.
         </li>
-        {hasAnalyticsProviders() ? (
-          <li>
-            <strong>Analytics providers</strong> — Google Analytics 4 and/or
-            Microsoft Clarity, only when you have accepted analytics.
-          </li>
-        ) : null}
+        <li>
+          <strong>Analytics providers</strong> — Vercel Web Analytics and,
+          where configured, Google Analytics 4 and/or Microsoft Clarity, only
+          when you have accepted analytics.
+        </li>
       </ul>
       <p>
         We do not sell personal data, and we do not use advertising or cross-site
@@ -96,12 +95,12 @@ export default function PrivacyPage() {
       <p>
         Analytics cookies are optional and are off until you accept them. You can
         reject them and still use every part of the store. If you accept, we load
-        Google Analytics 4 and, where configured, Microsoft Clarity. We configure
-        analytics storage as granted and advertising storage, ad user data and ad
-        personalisation as denied. We do not send analytics page views from the
-        checkout, order tracking or admin areas. Search terms are kept out of
-        page URLs, analytics page locations and referrers, and analytics event
-        parameters. The current search is stored in an HttpOnly session cookie,
+        Vercel Web Analytics and, where configured, Google Analytics 4 and
+        Microsoft Clarity. We configure analytics storage as granted and
+        advertising storage, ad user data and ad personalisation as denied. We
+        do not send analytics page views from the checkout, order tracking or
+        admin areas. Search terms are kept out of page URLs, analytics page
+        locations and referrers, and analytics event parameters. The current search is stored in an HttpOnly session cookie,
         and search inputs and the search page are masked from session replay.
       </p>
       {hasAnalyticsProviders() ? (
@@ -112,7 +111,7 @@ export default function PrivacyPage() {
           your browser.
         </p>
       ) : (
-        <p>No analytics provider is currently enabled.</p>
+        <p>No optional Google Analytics 4 or Clarity analytics is currently enabled.</p>
       )}
       <h2>How long we keep it</h2>
       <p>

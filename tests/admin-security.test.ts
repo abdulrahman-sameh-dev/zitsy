@@ -6,6 +6,10 @@ import {
   checkAdminLoginRateLimit,
   clearAdminLoginRateLimit,
 } from "@/lib/admin/login-rate-limit";
+import {
+  ANALYTICS_REFRESH_LIMITS,
+  checkAnalyticsRefreshRateLimit,
+} from "@/lib/admin/analytics-refresh-rate-limit";
 import { getClientIp } from "@/lib/http";
 import { db } from "@/lib/db/prisma";
 
@@ -79,6 +83,35 @@ describe("admin login rate limiting", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.key).not.toBe(ip);
     expect(rows[0]?.key).not.toContain(ip);
+  });
+});
+
+describe("analytics refresh rate limiting", () => {
+  it("limits Clarity refreshes to protect its daily export quota", async () => {
+    const policy = ANALYTICS_REFRESH_LIMITS.clarity;
+    for (let attempt = 0; attempt < policy.limit; attempt += 1) {
+      await expect(checkAnalyticsRefreshRateLimit("clarity", now)).resolves.toMatchObject({
+        allowed: true,
+      });
+    }
+
+    const blocked = await checkAnalyticsRefreshRateLimit("clarity", now);
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.retryAfterSeconds).toBeGreaterThan(0);
+  });
+
+  it("keeps provider refresh buckets independent", async () => {
+    const policy = ANALYTICS_REFRESH_LIMITS.clarity;
+    for (let attempt = 0; attempt < policy.limit; attempt += 1) {
+      await checkAnalyticsRefreshRateLimit("clarity", now);
+    }
+
+    await expect(checkAnalyticsRefreshRateLimit("ga4", now)).resolves.toMatchObject({
+      allowed: true,
+    });
+    await expect(checkAnalyticsRefreshRateLimit("clarity", now)).resolves.toMatchObject({
+      allowed: false,
+    });
   });
 });
 
