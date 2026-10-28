@@ -22,8 +22,6 @@ const GA_SCRIPT_ID = "zitsy-ga4";
 const CLARITY_SCRIPT_ID = "zitsy-clarity";
 const PRIVATE_PATHS = ["/admin", "/checkout", "/track-order"];
 
-const useGtm = Boolean(analytics.gtmId);
-
 export const OPEN_CONSENT_EVENT = "zitsy:open-consent";
 export const CONSENT_CHANGED_EVENT = "zitsy:consent-changed";
 
@@ -74,7 +72,7 @@ function injectScript(id: string, src: string, onLoad?: () => void): void {
 }
 
 export function initGa4(): void {
-  if (useGtm) return;
+  if (!hasAnalyticsConsent()) return;
   const measurementId = analytics.ga4MeasurementId;
   if (!measurementId || gaInitialized) return;
 
@@ -110,6 +108,7 @@ export function syncClarityRoute(pathname: string): void {
 }
 
 export function initClarity(): void {
+  if (!hasAnalyticsConsent()) return;
   const projectId = analytics.clarityProjectId;
   if (!projectId || clarityInitialized || clarityPaused) return;
   injectScript(
@@ -124,14 +123,6 @@ export function initClarity(): void {
 
 export function trackEvent(name: string, params: object = {}): void {
   if (currentConsent() !== "granted") return;
-  if (useGtm) {
-    ensureGtag();
-    window.dataLayer?.push({
-      event: name,
-      ...sanitizeAnalyticsParams(params),
-    });
-    return;
-  }
   if (!analytics.ga4MeasurementId) return;
   initGa4();
   window.gtag?.("event", name, sanitizeAnalyticsParams(params));

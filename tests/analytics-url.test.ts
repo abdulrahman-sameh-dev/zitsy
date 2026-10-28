@@ -68,7 +68,8 @@ interface FakeScript {
   addEventListener(): void;
 }
 
-function installGaHarness() {
+function installGaHarness(cookie = "zitsy_consent=granted") {
+  const scripts: FakeScript[] = [];
   const gtag = vi.fn();
   const fakeWindow = {
     dataLayer: [] as unknown[],
@@ -81,7 +82,7 @@ function installGaHarness() {
     },
   };
   const fakeDocument = {
-    cookie: "zitsy_consent=granted",
+    cookie,
     referrer: "https://zitsy.test/referrer?utm_source=email",
     title: "Search",
     getElementById() {
@@ -96,24 +97,53 @@ function installGaHarness() {
       };
     },
     head: {
-      appendChild() {},
+      appendChild(script: FakeScript) {
+        scripts.push(script);
+      },
     },
   };
 
   vi.stubGlobal("window", fakeWindow);
   vi.stubGlobal("document", fakeDocument);
 
-  return { gtag };
+  return { gtag, scripts };
 }
 
 async function loadClient() {
   vi.resetModules();
   vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://zitsy.test");
-  vi.stubEnv("NEXT_PUBLIC_GTM_ID", "");
   vi.stubEnv("NEXT_PUBLIC_GA_MEASUREMENT_ID", "G-TEST");
   vi.stubEnv("NEXT_PUBLIC_CLARITY_PROJECT_ID", "");
   return import("@/lib/analytics/client");
 }
+
+describe("GA4 consent gating", () => {
+  it("does not load GA4 before consent", async () => {
+    const { gtag, scripts } = installGaHarness("");
+    const { initGa4 } = await loadClient();
+
+    initGa4();
+
+    expect(gtag).not.toHaveBeenCalled();
+    expect(scripts).toHaveLength(0);
+  });
+
+  it("loads GA4 after consent", async () => {
+    const { gtag, scripts } = installGaHarness();
+    const { initGa4 } = await loadClient();
+
+    initGa4();
+
+    expect(gtag).toHaveBeenCalledWith("config", "G-TEST", {
+      send_page_view: false,
+      anonymize_ip: true,
+    });
+    expect(scripts).toHaveLength(1);
+    expect(scripts[0]?.src).toBe(
+      "https://www.googletagmanager.com/gtag/js?id=G-TEST",
+    );
+  });
+});
 
 describe("GA4 event context", () => {
   it("sends sanitised page URLs and drops raw caller values", async () => {

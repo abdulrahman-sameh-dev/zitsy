@@ -105,24 +105,24 @@ export default async function AdminAnalyticsPage() {
         />
       </div>
 
+      <div className="mt-6 flex flex-wrap gap-2 text-xs">
+        <span className="chip">
+          GA4: {data.configuredProviders.ga4 ? "configured" : "not configured"}
+        </span>
+        <span className="chip">
+          Clarity:{" "}
+          {data.configuredProviders.clarity ? "configured" : "not configured"}
+        </span>
+      </div>
+
       {!data.configuredProviders.ga4 && !data.configuredProviders.clarity ? (
-        <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          No analytics provider is configured. Set{" "}
+        <p className="mt-2 text-xs text-muted">
+          Behavioural analytics is optional and currently disabled. Database
+          figures are unaffected. To enable it, set{" "}
           <code>NEXT_PUBLIC_GA_MEASUREMENT_ID</code> and/or{" "}
-          <code>NEXT_PUBLIC_CLARITY_PROJECT_ID</code> to collect behavioural
-          analytics after consent.
-        </div>
-      ) : (
-        <div className="mt-6 flex flex-wrap gap-2 text-xs">
-          <span className="chip">
-            GA4: {data.configuredProviders.ga4 ? "configured" : "not configured"}
-          </span>
-          <span className="chip">
-            Clarity:{" "}
-            {data.configuredProviders.clarity ? "configured" : "not configured"}
-          </span>
-        </div>
-      )}
+          <code>NEXT_PUBLIC_CLARITY_PROJECT_ID</code>, then rebuild.
+        </p>
+      ) : null}
 
       <section className="mt-8 rounded-lg border border-line bg-surface p-5">
         <div className="flex items-baseline justify-between gap-4">

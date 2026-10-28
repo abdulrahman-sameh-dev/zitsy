@@ -8,13 +8,13 @@ interface FakeScript {
   addEventListener(type: string, listener: () => void): void;
 }
 
-function installBrowserHarness() {
+function installBrowserHarness(cookie = "zitsy_consent=granted") {
   const scripts: FakeScript[] = [];
   const clarity = vi.fn();
   const fakeWindow: { clarity?: typeof clarity } = {};
 
   const fakeDocument = {
-    cookie: "",
+    cookie,
     getElementById(id: string) {
       return scripts.find((script) => script.id === id) ?? null;
     },
@@ -51,12 +51,41 @@ async function loadClient() {
   return import("@/lib/analytics/client");
 }
 
+async function loadUnconfiguredClient() {
+  vi.resetModules();
+  vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
+  vi.stubEnv("NEXT_PUBLIC_GA_MEASUREMENT_ID", "");
+  vi.stubEnv("NEXT_PUBLIC_CLARITY_PROJECT_ID", "");
+  return import("@/lib/analytics/client");
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
 
 describe("Clarity route privacy", () => {
+  it("does not inject Clarity before consent", async () => {
+    const harness = installBrowserHarness("");
+    const { initClarity } = await loadClient();
+
+    initClarity();
+
+    expect(harness.scripts).toHaveLength(0);
+  });
+
+  it("does not inject scripts when no provider is configured", async () => {
+    const harness = installBrowserHarness();
+    const { initClarity, initGa4, trackEvent } = await loadUnconfiguredClient();
+
+    initGa4();
+    initClarity();
+    trackEvent("page_view");
+
+    expect(harness.scripts).toHaveLength(0);
+    expect(harness.fakeWindow).not.toHaveProperty("gtag");
+  });
+
   it("does not inject Clarity while on a private route", async () => {
     const harness = installBrowserHarness();
     const { initClarity, syncClarityRoute } = await loadClient();

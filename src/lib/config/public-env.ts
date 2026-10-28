@@ -18,23 +18,16 @@ export const site = {
   tagline: raw.NEXT_PUBLIC_SITE_TAGLINE || "Easy as Zitsy",
 } as const;
 
-function readPublicEnv(name: string, fallback: string) {
-  const value = process.env[name];
-  if (value === undefined || value === null) return fallback;
-  const trimmed = value.trim();
-  if (trimmed === "") return "";
-  return trimmed;
+function readPublicEnv(name: string): string {
+  return process.env[name]?.trim() ?? "";
 }
 
 export const analytics = {
-  gtmId: readPublicEnv("NEXT_PUBLIC_GTM_ID", "GTM-MD75KVQ9"),
-  ga4MeasurementId: readPublicEnv("NEXT_PUBLIC_GA_MEASUREMENT_ID", "G-93D82JN0SY"),
-  clarityProjectId: readPublicEnv("NEXT_PUBLIC_CLARITY_PROJECT_ID", "z49buvgeub"),
+  ga4MeasurementId: readPublicEnv("NEXT_PUBLIC_GA_MEASUREMENT_ID"),
+  clarityProjectId: readPublicEnv("NEXT_PUBLIC_CLARITY_PROJECT_ID"),
 } as const;
 
 export function hasAnalyticsProviders(): boolean {
-  return Boolean(
-    analytics.gtmId || analytics.ga4MeasurementId || analytics.clarityProjectId,
-  );
+  return Boolean(analytics.ga4MeasurementId || analytics.clarityProjectId);
 }
 
